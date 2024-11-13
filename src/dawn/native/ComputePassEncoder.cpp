@@ -420,6 +420,7 @@ void ComputePassEncoder::APIDispatchWorkgroupsIndirect(BufferBase* indirectBuffe
 }
 
 void ComputePassEncoder::APISetPipeline(ComputePipelineBase* pipeline) {
+    mCommandEncoder->AddComputeEntryPoint(pipeline->GetEntryPoint());
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {

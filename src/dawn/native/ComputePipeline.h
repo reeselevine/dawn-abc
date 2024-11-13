@@ -59,6 +59,8 @@ class ComputePipelineBase : public PipelineBase,
 
     bool IsFullSubgroupsRequired() const;
 
+    std::string GetEntryPoint();
+
   protected:
     void DestroyImpl() override;
 
@@ -66,6 +68,7 @@ class ComputePipelineBase : public PipelineBase,
     ComputePipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
     bool mRequiresFullSubgroups;
+    std::string entryPoint;
 };
 
 }  // namespace dawn::native

@@ -1074,6 +1074,7 @@ CommandEncoder::CommandEncoder(DeviceBase* device,
     } else {
         mUsageValidationMode = UsageValidationMode::Default;
     }
+
 }
 
 CommandEncoder::CommandEncoder(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label)
@@ -1086,6 +1087,8 @@ ObjectType CommandEncoder::GetType() const {
 }
 
 void CommandEncoder::DestroyImpl() {
+    abc_timing_resolution->Destroy();
+    abc_read_timing->Destroy();
     mEncodingContext.Destroy();
 }
 
@@ -1147,22 +1150,24 @@ Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescri
                 cmd->label = std::string(descriptor->label);
             }
 
-            if (descriptor->timestampWrites != nullptr) {
-                QuerySetBase* querySet = descriptor->timestampWrites->querySet;
-                uint32_t beginningOfPassWriteIndex =
-                    descriptor->timestampWrites->beginningOfPassWriteIndex;
-                uint32_t endOfPassWriteIndex = descriptor->timestampWrites->endOfPassWriteIndex;
+            // Create/set the timestamp writes for this compute pass
+            // This clobbers any user provided timestamp writes but for our purposes this is ok 
+            ComputePassTimestampWrites timestampWrites;
+            QuerySetDescriptor q_desc;
+            q_desc.type = wgpu::QueryType::Timestamp;
+            q_desc.count = 2;
+            timestampWrites.querySet = device->APICreateQuerySet(&q_desc);
+            timestampWrites.beginningOfPassWriteIndex = 0;
+            timestampWrites.endOfPassWriteIndex = 1;
 
-                cmd->timestampWrites.querySet = querySet;
-                cmd->timestampWrites.beginningOfPassWriteIndex = beginningOfPassWriteIndex;
-                cmd->timestampWrites.endOfPassWriteIndex = endOfPassWriteIndex;
-                if (beginningOfPassWriteIndex != wgpu::kQuerySetIndexUndefined) {
-                    TrackQueryAvailability(querySet, beginningOfPassWriteIndex);
-                }
-                if (endOfPassWriteIndex != wgpu::kQuerySetIndexUndefined) {
-                    TrackQueryAvailability(querySet, endOfPassWriteIndex);
-                }
-            }
+            // keep track of the timestamp writes for later resolution
+            timing_results.push_back(timestampWrites);
+
+            cmd->timestampWrites.querySet = timestampWrites.querySet;
+            cmd->timestampWrites.beginningOfPassWriteIndex = timestampWrites.beginningOfPassWriteIndex;
+            cmd->timestampWrites.endOfPassWriteIndex = timestampWrites.endOfPassWriteIndex;
+            TrackQueryAvailability(timestampWrites.querySet, timestampWrites.beginningOfPassWriteIndex);
+            TrackQueryAvailability(timestampWrites.querySet, timestampWrites.endOfPassWriteIndex);
             return {};
         },
         "encoding %s.BeginComputePass(%s).", this, descriptor);
@@ -2068,6 +2073,11 @@ CommandBufferBase* CommandEncoder::APIFinish(const CommandBufferDescriptor* desc
         return ReturnToAPI(std::move(errorCommandBuffer));
     }
 
+    // Set the timing read buffer to the command buffer
+    CommandBufferBase* detachedBuffer = commandBuffer.Detach();
+    detachedBuffer->SetTimingUserInfo(abc_read_timing, timing_results.size() * 2, entryPoints);
+    commandBuffer.Acquire(detachedBuffer);
+
     DAWN_ASSERT(!IsError());
     return ReturnToAPI(std::move(commandBuffer));
 }
@@ -2075,6 +2085,24 @@ CommandBufferBase* CommandEncoder::APIFinish(const CommandBufferDescriptor* desc
 ResultOrError<Ref<CommandBufferBase>> CommandEncoder::Finish(
     const CommandBufferDescriptor* descriptor) {
     DeviceBase* device = GetDevice();
+
+    // set up query set resolution and read buffer
+    uint32_t timestamps = timing_results.size() * 2; // 2 timestamps per compute pass
+    BufferDescriptor b_desc;
+    b_desc.usage = wgpu::BufferUsage::QueryResolve | wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
+    b_desc.size = 8 * timestamps; // 8 bytes per timestamp
+    abc_timing_resolution = device->APICreateBuffer(&b_desc);
+    BufferDescriptor b_read_desc;
+    b_read_desc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+    b_read_desc.size = 8 * timestamps;
+    abc_read_timing = device->APICreateBuffer(&b_read_desc);
+
+    // first resolve the timing query set
+    for (uint i = 0; i < timing_results.size(); i++) {
+      APIResolveQuerySet(timing_results[i].querySet, 0, 2, abc_timing_resolution, i * 2 * 8);
+    }
+    // copy all timestamps to read buffer
+    APICopyBufferToBuffer(abc_timing_resolution, 0, abc_read_timing, 0, timestamps * 8);
 
     TRACE_EVENT0(device->GetPlatform(), Recording, "CommandEncoder::Finish");
 
@@ -2133,6 +2161,10 @@ CommandEncoder::InternalUsageScope::InternalUsageScope(CommandEncoder* encoder)
 
 CommandEncoder::InternalUsageScope::~InternalUsageScope() {
     mEncoder->mUsageValidationMode = mUsageValidationMode;
+}
+
+void CommandEncoder::AddComputeEntryPoint(std::string entryPoint) {
+  entryPoints.push_back(entryPoint);
 }
 
 }  // namespace dawn::native

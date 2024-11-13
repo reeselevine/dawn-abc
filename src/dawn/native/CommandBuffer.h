@@ -48,6 +48,12 @@ struct CopyTextureToBufferCmd;
 struct BufferCopy;
 struct TextureCopy;
 
+typedef struct TimingUserInfo {
+  BufferBase * buf;
+  uint32_t timestamps;
+  std::vector<std::string> entryPoints;
+} TimingUserInfo;
+
 class CommandBufferBase : public ApiObjectBase {
   public:
     CommandBufferBase(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
@@ -59,6 +65,9 @@ class CommandBufferBase : public ApiObjectBase {
 
     const std::string& GetEncoderLabel() const;
     void SetEncoderLabel(std::string encoderLabel);
+
+    TimingUserInfo * GetTimingUserInfo();
+    void SetTimingUserInfo(BufferBase * timingReadBuffer, uint32_t timestamps, std::vector<std::string> entryPoints);
 
     MaybeError ValidateCanUseInSubmitNow() const;
 
@@ -76,6 +85,7 @@ class CommandBufferBase : public ApiObjectBase {
   private:
     CommandBufferBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
+    TimingUserInfo timingUserInfo;
     CommandBufferResourceUsage mResourceUsages;
     std::vector<IndirectDrawMetadata> mIndirectDrawMetadata;
     std::string mEncoderLabel;

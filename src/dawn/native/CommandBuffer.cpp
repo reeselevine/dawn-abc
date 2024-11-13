@@ -84,6 +84,18 @@ void CommandBufferBase::SetEncoderLabel(std::string encoderLabel) {
     mEncoderLabel = encoderLabel;
 }
 
+// Get the timing read buffer associated with this command buffer
+TimingUserInfo* CommandBufferBase::GetTimingUserInfo() {
+  return &timingUserInfo;
+}
+
+// Set the timing read buffer associated with this command buffer
+void CommandBufferBase::SetTimingUserInfo(BufferBase * timingReadBuffer, uint32_t timestamps, std::vector<std::string> entryPoints) {
+  timingUserInfo.buf = timingReadBuffer;
+  timingUserInfo.timestamps = timestamps;
+  timingUserInfo.entryPoints = entryPoints;
+}
+
 MaybeError CommandBufferBase::ValidateCanUseInSubmitNow() const {
     DAWN_ASSERT(!IsError());
 

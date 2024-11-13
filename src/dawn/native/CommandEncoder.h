@@ -113,6 +113,8 @@ class CommandEncoder final : public ApiObjectBase {
     Ref<RenderPassEncoder> BeginRenderPass(const RenderPassDescriptor* rawDescriptor);
     ResultOrError<Ref<CommandBufferBase>> Finish(
         const CommandBufferDescriptor* descriptor = nullptr);
+    
+    void AddComputeEntryPoint(std::string entryPoint);
 
     // `InternalUsageScope` is a scoped class that temporarily changes validation such that the
     // command encoder includes internal resource usages.
@@ -146,6 +148,12 @@ class CommandEncoder final : public ApiObjectBase {
     absl::flat_hash_set<QuerySetBase*> mUsedQuerySets;
 
     uint64_t mDebugGroupStackSize = 0;
+
+    std::vector<std::string> entryPoints;
+    std::vector<ComputePassTimestampWrites> timing_results;
+    uint32_t computePasses = 0;
+    BufferBase* abc_timing_resolution;
+    BufferBase* abc_read_timing;
 
     UsageValidationMode mUsageValidationMode;
 };
