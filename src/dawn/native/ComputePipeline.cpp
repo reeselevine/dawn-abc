@@ -75,6 +75,10 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
     SetContentHash(ComputeContentHash());
     GetObjectTrackingList()->Track(this);
 
+    // set entry point name
+    std::string str(descriptor->compute.entryPoint.data);
+    entryPoint = str;
+
     if (auto* fullSubgroupsOption = descriptor.Get<DawnComputePipelineFullSubgroups>()) {
         mRequiresFullSubgroups = fullSubgroupsOption->requiresFullSubgroups;
     }
@@ -96,6 +100,10 @@ void ComputePipelineBase::DestroyImpl() {
 
 bool ComputePipelineBase::IsFullSubgroupsRequired() const {
     return mRequiresFullSubgroups;
+}
+
+std::string ComputePipelineBase::GetEntryPoint() {
+  return entryPoint;
 }
 
 // static

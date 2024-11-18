@@ -688,6 +688,25 @@ MaybeError QueueBase::ValidateWriteTexture(const ImageCopyTexture* destination,
     return {};
 }
 
+void MapCallback(WGPUBufferMapAsyncStatus status, void * userInfo) {
+    // handle this as a pointer to several timestampInfos
+    TimestampInfo * info = (TimestampInfo *) userInfo;
+    if (status == WGPUBufferMapAsyncStatus_Success) {
+        u_long* output = (u_long*)info->stagingBuffer->APIGetConstMappedRange(0, 2 * 8);
+        std::cout << "Entrypoint: " << info->entryPoint << std::endl;
+        std::cout << "Beginning: " << output[0] << std::endl;
+        std::cout << "End: " << output[1] << std::endl;
+    }
+    info->stagingBuffer->APIUnmap();
+    // free erything
+    info->stagingBuffer->Destroy();
+    info->queryBuffer->Destroy();
+    if (info->internalTimestampWrites)
+      info->timestampWrites.querySet->Destroy();
+    free(info->entryPoint);
+    free(info);
+}
+
 MaybeError QueueBase::SubmitInternal(uint32_t commandCount, CommandBufferBase* const* commands) {
     DeviceBase* device = GetDevice();
 
@@ -704,6 +723,15 @@ MaybeError QueueBase::SubmitInternal(uint32_t commandCount, CommandBufferBase* c
 
     // Call Tick() to flush pending work.
     DAWN_TRY(device->Tick());
+
+    // Print the timings for each command buffer
+    for (uint32_t i = 0; i < commandCount; ++i) {
+      std::vector<TimestampInfo*> infos = commands[i]->GetTimestampInfos();
+      for (TimestampInfo* info : infos) {
+        if (info != nullptr)
+          info->stagingBuffer->APIMapAsync(wgpu::MapMode::Read, 0, 2 * 8, MapCallback, info);
+      }
+    }
 
     return {};
 }

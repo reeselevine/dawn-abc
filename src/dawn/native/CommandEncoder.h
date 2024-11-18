@@ -40,6 +40,7 @@
 #include "dawn/native/PassResourceUsage.h"
 #include "dawn/native/dawn_platform.h"
 #include "partition_alloc/pointers/raw_ptr.h"
+#include "dawn/native/TimestampInfo.h"
 
 namespace dawn::native {
 
@@ -109,10 +110,12 @@ class CommandEncoder final : public ApiObjectBase {
 
     CommandBufferBase* APIFinish(const CommandBufferDescriptor* descriptor = nullptr);
 
-    Ref<ComputePassEncoder> BeginComputePass(const ComputePassDescriptor* descriptor = nullptr);
+    Ref<ComputePassEncoder> BeginComputePass(const ComputePassDescriptor* descriptor = nullptr, bool addTimestampQuery = false);
     Ref<RenderPassEncoder> BeginRenderPass(const RenderPassDescriptor* rawDescriptor);
     ResultOrError<Ref<CommandBufferBase>> Finish(
         const CommandBufferDescriptor* descriptor = nullptr);
+ 
+    void AddTimestampQueryInfo(TimestampInfo *info);
 
     // `InternalUsageScope` is a scoped class that temporarily changes validation such that the
     // command encoder includes internal resource usages.
@@ -146,6 +149,8 @@ class CommandEncoder final : public ApiObjectBase {
     absl::flat_hash_set<QuerySetBase*> mUsedQuerySets;
 
     uint64_t mDebugGroupStackSize = 0;
+
+    std::vector<TimestampInfo*> timestampInfos;
 
     UsageValidationMode mUsageValidationMode;
 };

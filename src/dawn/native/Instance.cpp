@@ -161,7 +161,8 @@ ResultOrError<Ref<InstanceBase>> InstanceBase::Create(const InstanceDescriptor* 
         TogglesState::CreateFromTogglesDescriptor(instanceTogglesDesc, ToggleStage::Instance);
     // By default disable the AllowUnsafeAPIs instance toggle, it will be inherited to adapters
     // and devices created by this instance if not overriden.
-    instanceToggles.Default(Toggle::AllowUnsafeAPIs, false);
+    // Set this to true to always allow timestamp queries
+    instanceToggles.Default(Toggle::AllowUnsafeAPIs, true);
 
     Ref<InstanceBase> instance = AcquireRef(new InstanceBase(instanceToggles));
     DAWN_TRY(instance->Initialize(unpacked));

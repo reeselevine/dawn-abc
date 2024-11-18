@@ -108,6 +108,9 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
     // Adapter toggles state.
     TogglesState mTogglesState;
 
+    DeviceDescriptor updatedDescriptor;
+    std::vector<wgpu::FeatureName> updatedFeatures;
+
     wgpu::PowerPreference mPowerPreference;
 };
 

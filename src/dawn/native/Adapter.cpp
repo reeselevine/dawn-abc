@@ -248,10 +248,38 @@ ResultOrError<Ref<DeviceBase>> AdapterBase::CreateDeviceInternal(
     Ref<DeviceBase::DeviceLostEvent> lostEvent) {
     DAWN_ASSERT(rawDescriptor != nullptr);
 
+    updatedDescriptor.nextInChain = rawDescriptor->nextInChain;
+    updatedDescriptor.label = rawDescriptor->label;
+    updatedDescriptor.requiredFeatureCount = rawDescriptor->requiredFeatureCount;
+    updatedDescriptor.requiredFeatures = rawDescriptor->requiredFeatures;
+    updatedDescriptor.requiredLimits = rawDescriptor->requiredLimits;
+    updatedDescriptor.defaultQueue = rawDescriptor->defaultQueue;
+    updatedDescriptor.deviceLostCallback = rawDescriptor->deviceLostCallback;
+    updatedDescriptor.deviceLostUserdata = rawDescriptor->deviceLostUserdata;
+    updatedDescriptor.deviceLostCallbackInfo = rawDescriptor->deviceLostCallbackInfo;
+    updatedDescriptor.uncapturedErrorCallbackInfo = rawDescriptor->uncapturedErrorCallbackInfo;
+    updatedDescriptor.deviceLostCallbackInfo2 = rawDescriptor->deviceLostCallbackInfo2;
+    updatedDescriptor.uncapturedErrorCallbackInfo2 = rawDescriptor->uncapturedErrorCallbackInfo2;
+
+    bool hasTimestampQueries = false;
+    for (uint32_t i = 0; i < updatedDescriptor.requiredFeatureCount; ++i) {
+      updatedFeatures.push_back(updatedDescriptor.requiredFeatures[i]);
+      // don't need to add timestamp queries if it is already there
+      if (updatedDescriptor.requiredFeatures[i] == wgpu::FeatureName::TimestampQuery) {
+        hasTimestampQueries = true;
+      }
+    }
+
+    if (!hasTimestampQueries) {
+      updatedFeatures.push_back(wgpu::FeatureName::TimestampQuery);
+      updatedDescriptor.requiredFeatureCount = updatedDescriptor.requiredFeatureCount + 1;
+    }
+    updatedDescriptor.requiredFeatures = updatedFeatures.data();
+
     // Create device toggles state from required toggles descriptor and inherited adapter toggles
     // state.
     UnpackedPtr<DeviceDescriptor> descriptor;
-    DAWN_TRY_ASSIGN(descriptor, ValidateAndUnpack(rawDescriptor));
+    DAWN_TRY_ASSIGN(descriptor, ValidateAndUnpack(&updatedDescriptor));
     auto* deviceTogglesDesc = descriptor.Get<DawnTogglesDescriptor>();
 
     // Create device toggles state.
@@ -260,7 +288,7 @@ ResultOrError<Ref<DeviceBase>> AdapterBase::CreateDeviceInternal(
     deviceToggles.InheritFrom(mTogglesState);
     // Default toggles for all backend
     deviceToggles.Default(Toggle::LazyClearResourceOnFirstUse, true);
-    deviceToggles.Default(Toggle::TimestampQuantization, true);
+    deviceToggles.Default(Toggle::TimestampQuantization, false);
     if (mInstance->IsBackendValidationEnabled()) {
         deviceToggles.Default(Toggle::UseUserDefinedLabelsInBackend, true);
     }

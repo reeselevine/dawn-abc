@@ -40,6 +40,7 @@
 #include "dawn/native/ObjectBase.h"
 #include "dawn/native/PassResourceUsage.h"
 #include "dawn/native/Texture.h"
+#include "dawn/native/TimestampInfo.h"
 
 namespace dawn::native {
 
@@ -60,6 +61,9 @@ class CommandBufferBase : public ApiObjectBase {
     const std::string& GetEncoderLabel() const;
     void SetEncoderLabel(std::string encoderLabel);
 
+    std::vector<TimestampInfo*> GetTimestampInfos();
+    void SetTimestampInfos(std::vector<TimestampInfo*>);
+
     MaybeError ValidateCanUseInSubmitNow() const;
 
     const CommandBufferResourceUsage& GetResourceUsages() const;
@@ -76,6 +80,7 @@ class CommandBufferBase : public ApiObjectBase {
   private:
     CommandBufferBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
+    std::vector<TimestampInfo*> timestampInfos;
     CommandBufferResourceUsage mResourceUsages;
     std::vector<IndirectDrawMetadata> mIndirectDrawMetadata;
     std::string mEncoderLabel;
