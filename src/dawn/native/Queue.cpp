@@ -688,10 +688,10 @@ MaybeError QueueBase::ValidateWriteTexture(const ImageCopyTexture* destination,
     return {};
 }
 
-void MapCallback(WGPUBufferMapAsyncStatus status, void * userInfo) {
+void MapCallback(WGPUMapAsyncStatus status, struct WGPUStringView message, void * userdata1, void * userdata2) {
     // handle this as a pointer to several timestampInfos
-    TimestampInfo * info = (TimestampInfo *) userInfo;
-    if (status == WGPUBufferMapAsyncStatus_Success) {
+    TimestampInfo * info = (TimestampInfo *) userdata1;
+    if (status == WGPUMapAsyncStatus_Success) {
         u_long* output = (u_long*)info->stagingBuffer->APIGetConstMappedRange(0, 2 * 8);
         std::cout << "Entrypoint: " << info->entryPoint << std::endl;
         std::cout << "Beginning: " << output[0] << std::endl;
@@ -728,8 +728,17 @@ MaybeError QueueBase::SubmitInternal(uint32_t commandCount, CommandBufferBase* c
     for (uint32_t i = 0; i < commandCount; ++i) {
       std::vector<TimestampInfo*> infos = commands[i]->GetTimestampInfos();
       for (TimestampInfo* info : infos) {
-        if (info != nullptr)
-          info->stagingBuffer->APIMapAsync(wgpu::MapMode::Read, 0, 2 * 8, MapCallback, info);
+        if (info != nullptr) {
+          std::cout << "calling map async\n";
+          WGPUBufferMapCallbackInfo2 info2 = WGPU_BUFFER_MAP_CALLBACK_INFO_2_INIT;
+          info2.mode = WGPUCallbackMode_AllowSpontaneous;
+          info2.callback = MapCallback;
+          info2.userdata1 = info;
+          Future future = info->stagingBuffer->APIMapAsync2(wgpu::MapMode::Read, 0, 2 * 8, info2);
+          FutureWaitInfo futureWaitInfo;
+          futureWaitInfo.future = future;
+          wgpu::WaitStatus status = GetInstance()->APIWaitAny(1, &futureWaitInfo, UINT64_MAX);
+        }
       }
     }
 

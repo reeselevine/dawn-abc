@@ -1176,10 +1176,15 @@ Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescri
 
         BufferDescriptor stagingBufferDesc;
         StringView stagingBufferLabel("Timing Results Staging Buffer");
+        stagingBufferDesc.mappedAtCreation = true;
         stagingBufferDesc.label = stagingBufferLabel;
         stagingBufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
         stagingBufferDesc.size = 2 * 8; // enough for two timestamps
         timestampInfo->stagingBuffer = device->APICreateBufferLocked(&stagingBufferDesc);
+        u_long* input = (u_long*)timestampInfo->stagingBuffer->APIGetMappedRange(0, 2 * 8);
+        input[0] = 42;
+        input[1] = 53;
+        timestampInfo->stagingBuffer->APIUnmap();
     }
 
     bool success = mEncodingContext.TryEncode(
