@@ -36,6 +36,7 @@
 #include "dawn/native/Forward.h"
 #include "dawn/native/PassResourceUsageTracker.h"
 #include "dawn/native/ProgrammableEncoder.h"
+#include "dawn/native/TimestampInfo.h"
 
 namespace dawn::native {
 
@@ -46,7 +47,8 @@ class ComputePassEncoder final : public ProgrammableEncoder {
     static Ref<ComputePassEncoder> Create(DeviceBase* device,
                                           const ComputePassDescriptor* descriptor,
                                           CommandEncoder* commandEncoder,
-                                          EncodingContext* encodingContext);
+                                          EncodingContext* encodingContext,
+                                          TimestampInfo* timestampInfo);
     static Ref<ComputePassEncoder> MakeError(DeviceBase* device,
                                              CommandEncoder* commandEncoder,
                                              EncodingContext* encodingContext,
@@ -80,7 +82,8 @@ class ComputePassEncoder final : public ProgrammableEncoder {
     ComputePassEncoder(DeviceBase* device,
                        const ComputePassDescriptor* descriptor,
                        CommandEncoder* commandEncoder,
-                       EncodingContext* encodingContext);
+                       EncodingContext* encodingContext,
+                       TimestampInfo* timestampInfo);
     ComputePassEncoder(DeviceBase* device,
                        CommandEncoder* commandEncoder,
                        EncodingContext* encodingContext,
@@ -106,6 +109,9 @@ class ComputePassEncoder final : public ProgrammableEncoder {
     // For render and compute passes, the encoding context is borrowed from the command encoder.
     // Keep a reference to the encoder to make sure the context isn't freed.
     Ref<CommandEncoder> mCommandEncoder;
+
+    // Keep a reference to the timestamp info for this pass so the entry point can be updated.
+    TimestampInfo* mTimestampInfo = nullptr;
 };
 
 }  // namespace dawn::native

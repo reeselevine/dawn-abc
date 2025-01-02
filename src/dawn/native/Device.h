@@ -238,6 +238,9 @@ class DeviceBase : public ErrorSink, public RefCountedWithExternalCount<RefCount
     BindGroupBase* APICreateBindGroup(const BindGroupDescriptor* descriptor);
     BindGroupLayoutBase* APICreateBindGroupLayout(const BindGroupLayoutDescriptor* descriptor);
     BufferBase* APICreateBuffer(const BufferDescriptor* descriptor);
+    // for creating a buffer when you've already got the device lock
+    BufferBase* APICreateBufferLocked(const BufferDescriptor* descriptor);
+
     CommandEncoder* APICreateCommandEncoder(const CommandEncoderDescriptor* descriptor);
     ComputePipelineBase* APICreateComputePipeline(const ComputePipelineDescriptor* descriptor);
     PipelineLayoutBase* APICreatePipelineLayout(const PipelineLayoutDescriptor* descriptor);

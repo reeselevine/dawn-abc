@@ -84,6 +84,16 @@ void CommandBufferBase::SetEncoderLabel(std::string encoderLabel) {
     mEncoderLabel = encoderLabel;
 }
 
+// Get the timestamp information associated with this command buffer.
+std::vector<TimestampInfo*> CommandBufferBase::GetTimestampInfos() {
+  return timestampInfos;
+}
+
+// Set the timing read buffer associated with this command buffer
+void CommandBufferBase::SetTimestampInfos(std::vector<TimestampInfo*> infos) {
+  timestampInfos = infos;
+}
+
 MaybeError CommandBufferBase::ValidateCanUseInSubmitNow() const {
     DAWN_ASSERT(!IsError());
 

@@ -64,6 +64,10 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
     SetContentHash(ComputeContentHash());
     GetObjectTrackingList()->Track(this);
 
+    // set entry point name
+    std::string str(descriptor->compute.entryPoint.data);
+    entryPoint = str;
+
     // Initialize the cache key to include the cache type and device information.
     StreamIn(&mCacheKey, CacheKey::Type::ComputePipeline, device->GetCacheKey());
 }
@@ -97,6 +101,10 @@ Ref<ComputePipelineBase> ComputePipelineBase::MakeError(DeviceBase* device, Stri
 
 ObjectType ComputePipelineBase::GetType() const {
     return ObjectType::ComputePipeline;
+}
+
+std::string ComputePipelineBase::GetEntryPoint() {
+  return entryPoint;
 }
 
 bool ComputePipelineBase::EqualityFunc::operator()(const ComputePipelineBase* a,

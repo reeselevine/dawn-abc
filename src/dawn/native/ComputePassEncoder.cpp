@@ -126,9 +126,11 @@ ResultOrError<ComputePipelineBase*> GetOrCreateIndirectDispatchValidationPipelin
 ComputePassEncoder::ComputePassEncoder(DeviceBase* device,
                                        const ComputePassDescriptor* descriptor,
                                        CommandEncoder* commandEncoder,
-                                       EncodingContext* encodingContext)
+                                       EncodingContext* encodingContext,
+                                       TimestampInfo* timestampInfo)
     : ProgrammableEncoder(device, descriptor->label, encodingContext),
-      mCommandEncoder(commandEncoder) {
+      mCommandEncoder(commandEncoder),
+      mTimestampInfo(timestampInfo) {
     GetObjectTrackingList()->Track(this);
 }
 
@@ -140,8 +142,9 @@ ComputePassEncoder::~ComputePassEncoder() {
 Ref<ComputePassEncoder> ComputePassEncoder::Create(DeviceBase* device,
                                                    const ComputePassDescriptor* descriptor,
                                                    CommandEncoder* commandEncoder,
-                                                   EncodingContext* encodingContext) {
-    return AcquireRef(new ComputePassEncoder(device, descriptor, commandEncoder, encodingContext));
+                                                   EncodingContext* encodingContext,
+                                                   TimestampInfo* timestampInfo) {
+    return AcquireRef(new ComputePassEncoder(device, descriptor, commandEncoder, encodingContext, timestampInfo));
 }
 
 ComputePassEncoder::ComputePassEncoder(DeviceBase* device,
@@ -429,6 +432,14 @@ void ComputePassEncoder::APIDispatchWorkgroupsIndirect(BufferBase* indirectBuffe
 }
 
 void ComputePassEncoder::APISetPipeline(ComputePipelineBase* pipeline) {
+    // At this point we can add the timestamp info to the command encoder
+    if (mTimestampInfo != nullptr) {
+      std::string entryPoint = pipeline->GetEntryPoint();
+      char* cstr = static_cast<char*>(malloc(entryPoint.size() + 1));
+      std::copy(entryPoint.c_str(), entryPoint.c_str() + entryPoint.size() + 1, cstr);
+      mTimestampInfo->entryPoint = cstr;
+      mCommandEncoder->AddTimestampQueryInfo(mTimestampInfo);
+    }
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {

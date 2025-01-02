@@ -57,11 +57,15 @@ class ComputePipelineBase : public PipelineBase,
         bool operator()(const ComputePipelineBase* a, const ComputePipelineBase* b) const;
     };
 
+    std::string GetEntryPoint();
+
   protected:
     void DestroyImpl() override;
 
   private:
     ComputePipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
+
+    std::string entryPoint;
 };
 
 }  // namespace dawn::native
