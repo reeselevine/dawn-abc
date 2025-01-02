@@ -725,21 +725,27 @@ MaybeError QueueBase::SubmitInternal(uint32_t commandCount, CommandBufferBase* c
     DAWN_TRY(device->Tick());
 
     // Print the timings for each command buffer
+    std::vector<WGPUBufferMapCallbackInfo2> mapCallbackInfos;
+    std::vector<FutureWaitInfo> futureWaitInfos;
     for (uint32_t i = 0; i < commandCount; ++i) {
       std::vector<TimestampInfo*> infos = commands[i]->GetTimestampInfos();
       for (TimestampInfo* info : infos) {
         if (info != nullptr) {
-          std::cout << "calling map async\n";
           WGPUBufferMapCallbackInfo2 info2 = WGPU_BUFFER_MAP_CALLBACK_INFO_2_INIT;
           info2.mode = WGPUCallbackMode_AllowSpontaneous;
           info2.callback = MapCallback;
           info2.userdata1 = info;
-          Future future = info->stagingBuffer->APIMapAsync2(wgpu::MapMode::Read, 0, 2 * 8, info2);
+          mapCallbackInfos.push_back(info2);
+          Future future = info->stagingBuffer->APIMapAsync2(wgpu::MapMode::Read, 0, 2 * 8, mapCallbackInfos.back());
           FutureWaitInfo futureWaitInfo;
           futureWaitInfo.future = future;
-          wgpu::WaitStatus status = GetInstance()->APIWaitAny(1, &futureWaitInfo, UINT64_MAX);
+          futureWaitInfos.push_back(futureWaitInfo);
         }
       }
+    }
+    wgpu::WaitStatus status = GetInstance()->APIWaitAny(futureWaitInfos.size(), futureWaitInfos.data(), UINT64_MAX);
+    if (status != wgpu::WaitStatus::Success) {
+      std::cout << "Error waiting for timing query callbacks\n";
     }
 
     return {};
