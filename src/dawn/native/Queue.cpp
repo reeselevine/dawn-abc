@@ -695,9 +695,12 @@ void MapCallback(WGPUMapAsyncStatus status, struct WGPUStringView message, void 
     if (status == WGPUMapAsyncStatus_Success) {
         u_long* output = (u_long*)info->stagingBuffer->APIGetConstMappedRange(0, 2 * 8);
         std::ostringstream timestampMsg;
-        timestampMsg << "Entrypoint: " << info->entryPoint << std::endl;
-        timestampMsg << "Beginning: " << output[0] << std::endl;
-        timestampMsg << "End: " << output[1] << std::endl;
+        timestampMsg << "{\n";
+        timestampMsg << "  \"entryPoint\": \"" << info->entryPoint << "\",\n";
+        timestampMsg << "  \"start\": " << output[0] << ",\n";
+        timestampMsg << "  \"end\": " << output[1] << "\n";
+        timestampMsg << "}\n";
+        std::cout << timestampMsg.str();
         device->EmitLog(WGPULoggingType_Info, timestampMsg.str().c_str());
     }
     info->stagingBuffer->APIUnmap();

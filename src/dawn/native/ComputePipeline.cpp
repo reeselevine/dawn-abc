@@ -65,7 +65,8 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
     GetObjectTrackingList()->Track(this);
 
     // set entry point name
-    std::string str(descriptor->compute.entryPoint.data);
+    std::string_view str_view = descriptor->compute.entryPoint;
+    std::string str(str_view);
     entryPoint = str;
 
     // Initialize the cache key to include the cache type and device information.
