@@ -1143,8 +1143,8 @@ Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescri
     TimestampInfo * timestampInfo = nullptr;
 
     if (addTimestampQuery) {
-
-        timestampInfo = (TimestampInfo*) malloc(sizeof(TimestampInfo));
+        void* memory = malloc(sizeof(TimestampInfo));
+        timestampInfo = new (memory) TimestampInfo();
         timestampInfo->internalTimestampWrites = false;
 
         // Create our own timestamp writes

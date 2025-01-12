@@ -13,8 +13,8 @@ typedef struct TimestampInfo {
   ComputePassTimestampWrites timestampWrites;
   BufferBase * queryBuffer;
   BufferBase * stagingBuffer;
-  size_t shaderHash;
-  char* entryPoint;
+  std::vector<size_t> shaderHashes;
+  std::vector<char*> entryPoints;
   bool internalTimestampWrites;
 } TimestampInfo;
 

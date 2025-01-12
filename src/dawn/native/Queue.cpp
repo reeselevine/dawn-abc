@@ -693,24 +693,43 @@ void MapCallback(WGPUMapAsyncStatus status, struct WGPUStringView message, void 
     TimestampInfo * info = (TimestampInfo *) userdata1;
     DeviceBase * device = (DeviceBase *) userdata2;
     if (status == WGPUMapAsyncStatus_Success) {
-        u_long* output = (u_long*)info->stagingBuffer->APIGetConstMappedRange(0, 2 * 8);
-        std::ostringstream timestampMsg;
-        timestampMsg << "{\n";
-        timestampMsg << "  \"entryPoint\": \"" << info->entryPoint << "\",\n";
-        timestampMsg << "  \"shaderHash\": " << info->shaderHash << ",\n";
-        timestampMsg << "  \"start\": " << output[0] << ",\n";
-        timestampMsg << "  \"end\": " << output[1] << "\n";
-        timestampMsg << "}\n";
-        std::cout << timestampMsg.str();
-        device->EmitLog(WGPULoggingType_Info, timestampMsg.str().c_str());
+      u_long* output = (u_long*)info->stagingBuffer->APIGetConstMappedRange(0, 2 * 8);
+      std::ostringstream timestampMsg;
+      timestampMsg << "{\n";
+      timestampMsg << "  \"entryPoints\": [";
+      for (size_t i = 0; i < info->entryPoints.size(); ++i) {
+        timestampMsg << "\"" << info->entryPoints[i] << "\"";
+        if (i < info->entryPoints.size() - 1) {
+            timestampMsg << ",";
+        }
+      }
+      timestampMsg << "],\n";
+      timestampMsg << "  \"shaderHashes\": [";
+      for (size_t i = 0; i < info->shaderHashes.size(); ++i) {
+        timestampMsg << "" << info->shaderHashes[i];
+        if (i < info->shaderHashes.size() - 1) {
+            timestampMsg << ",";
+        }
+      }
+      timestampMsg << "],\n";
+      timestampMsg << "  \"start\": " << output[0] << ",\n";
+      timestampMsg << "  \"end\": " << output[1] << "\n";
+      timestampMsg << "}\n";
+      std::cout << timestampMsg.str();
+      device->EmitLog(WGPULoggingType_Info, timestampMsg.str().c_str());
     }
     info->stagingBuffer->APIUnmap();
-    // free erything
     info->stagingBuffer->Destroy();
     info->queryBuffer->Destroy();
-    if (info->internalTimestampWrites)
+    if (info->internalTimestampWrites) {
       info->timestampWrites.querySet->Destroy();
-    free(info->entryPoint);
+    }
+    for (char* entryPoint : info->entryPoints) {
+      free(entryPoint);
+    }
+    info->entryPoints.clear();
+    info->shaderHashes.clear();
+    info->~TimestampInfo();
     free(info);
 }
 
