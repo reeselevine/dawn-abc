@@ -300,16 +300,24 @@ ResultOrError<Ref<DeviceBase>> AdapterBase::CreateDeviceInternal(
     updatedDescriptor.uncapturedErrorCallbackInfo2 = rawDescriptor->uncapturedErrorCallbackInfo2;
 
     bool hasTimestampQueries = false;
+    bool hasExperimentalTimestampQueryInsidePasses = false;
     for (uint32_t i = 0; i < updatedDescriptor.requiredFeatureCount; ++i) {
       updatedFeatures.push_back(updatedDescriptor.requiredFeatures[i]);
       // don't need to add timestamp queries if it is already there
       if (updatedDescriptor.requiredFeatures[i] == wgpu::FeatureName::TimestampQuery) {
         hasTimestampQueries = true;
       }
+      if (updatedDescriptor.requiredFeatures[i] == wgpu::FeatureName::ChromiumExperimentalTimestampQueryInsidePasses) {
+        hasExperimentalTimestampQueryInsidePasses = true;
+      }
     }
 
     if (!hasTimestampQueries) {
       updatedFeatures.push_back(wgpu::FeatureName::TimestampQuery);
+      updatedDescriptor.requiredFeatureCount = updatedDescriptor.requiredFeatureCount + 1;
+    }
+    if (!hasExperimentalTimestampQueryInsidePasses) {
+      updatedFeatures.push_back(wgpu::FeatureName::ChromiumExperimentalTimestampQueryInsidePasses);
       updatedDescriptor.requiredFeatureCount = updatedDescriptor.requiredFeatureCount + 1;
     }
     updatedDescriptor.requiredFeatures = updatedFeatures.data();

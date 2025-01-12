@@ -127,10 +127,10 @@ ComputePassEncoder::ComputePassEncoder(DeviceBase* device,
                                        const ComputePassDescriptor* descriptor,
                                        CommandEncoder* commandEncoder,
                                        EncodingContext* encodingContext,
-                                       TimestampInfo* timestampInfo)
+                                       bool addTimestampQueries)
     : ProgrammableEncoder(device, descriptor->label, encodingContext),
       mCommandEncoder(commandEncoder),
-      mTimestampInfo(timestampInfo) {
+      mAddTimestampQueries(addTimestampQueries) {
     GetObjectTrackingList()->Track(this);
 }
 
@@ -143,8 +143,8 @@ Ref<ComputePassEncoder> ComputePassEncoder::Create(DeviceBase* device,
                                                    const ComputePassDescriptor* descriptor,
                                                    CommandEncoder* commandEncoder,
                                                    EncodingContext* encodingContext,
-                                                   TimestampInfo* timestampInfo) {
-    return AcquireRef(new ComputePassEncoder(device, descriptor, commandEncoder, encodingContext, timestampInfo));
+                                                   bool addTimestampQueries) {
+    return AcquireRef(new ComputePassEncoder(device, descriptor, commandEncoder, encodingContext, addTimestampQueries));
 }
 
 ComputePassEncoder::ComputePassEncoder(DeviceBase* device,
@@ -204,6 +204,31 @@ void ComputePassEncoder::APIEnd() {
 void ComputePassEncoder::APIDispatchWorkgroups(uint32_t workgroupCountX,
                                                uint32_t workgroupCountY,
                                                uint32_t workgroupCountZ) {
+    TimestampInfo * timestampInfo = nullptr;
+    if (mAddTimestampQueries) {
+      timestampInfo = (TimestampInfo*) malloc(sizeof(TimestampInfo));
+      QuerySetDescriptor q_desc;
+      StringView q_desc_label("Query set");
+      q_desc.label = q_desc_label;
+      q_desc.type = wgpu::QueryType::Timestamp;
+      q_desc.count = 2;
+      timestampInfo->querySet = GetDevice()->APICreateQuerySet(&q_desc);
+      // set up query set resolution and read buffer
+      BufferDescriptor queryBufferDesc;
+      StringView queryBufferLabel("Query Resolve Buffer");
+      queryBufferDesc.label = queryBufferLabel;
+      queryBufferDesc.usage = wgpu::BufferUsage::QueryResolve | wgpu::BufferUsage::CopySrc;
+      queryBufferDesc.size = 2 * 8; // enough for two timestamps
+      timestampInfo->queryBuffer = GetDevice()->APICreateBuffer(&queryBufferDesc);
+
+      BufferDescriptor stagingBufferDesc;
+      StringView stagingBufferLabel("Timing Results Staging Buffer");
+      stagingBufferDesc.label = stagingBufferLabel;
+      stagingBufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+      stagingBufferDesc.size = 2 * 8; // enough for two timestamps
+      timestampInfo->stagingBuffer = GetDevice()->APICreateBuffer(&stagingBufferDesc);
+      APIWriteTimestamp(timestampInfo->querySet, 0);
+    }
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
@@ -261,6 +286,13 @@ void ComputePassEncoder::APIDispatchWorkgroups(uint32_t workgroupCountX,
         },
         "encoding %s.DispatchWorkgroups(%u, %u, %u).", this, workgroupCountX, workgroupCountY,
         workgroupCountZ);
+    if (mAddTimestampQueries) {
+      APIWriteTimestamp(timestampInfo->querySet, 1);
+      char* cstr = static_cast<char*>(malloc(currEntryPoint.size() + 1));
+      std::copy(currEntryPoint.c_str(), currEntryPoint.c_str() + currEntryPoint.size() + 1, cstr);
+      timestampInfo->entryPoint = cstr;
+      mCommandEncoder->AddTimestampQueryInfo(timestampInfo);
+    }
 }
 
 ResultOrError<std::pair<Ref<BufferBase>, uint64_t>>
@@ -433,12 +465,13 @@ void ComputePassEncoder::APIDispatchWorkgroupsIndirect(BufferBase* indirectBuffe
 
 void ComputePassEncoder::APISetPipeline(ComputePipelineBase* pipeline) {
     // At this point we can add the timestamp info to the command encoder
-    if (mTimestampInfo != nullptr) {
-      std::string entryPoint = pipeline->GetEntryPoint();
-      char* cstr = static_cast<char*>(malloc(entryPoint.size() + 1));
-      std::copy(entryPoint.c_str(), entryPoint.c_str() + entryPoint.size() + 1, cstr);
-      mTimestampInfo->entryPoint = cstr;
-      mCommandEncoder->AddTimestampQueryInfo(mTimestampInfo);
+    if (mAddTimestampQueries) {
+      currEntryPoint = pipeline->GetEntryPoint();
+//      std::string entryPoint = pipeline->GetEntryPoint();
+//      char* cstr = static_cast<char*>(malloc(entryPoint.size() + 1));
+//      std::copy(entryPoint.c_str(), entryPoint.c_str() + entryPoint.size() + 1, cstr);
+//      mTimestampInfo->entryPoint = cstr;
+//      mCommandEncoder->AddTimestampQueryInfo(mTimestampInfo);
     }
     mEncodingContext->TryEncode(
         this,

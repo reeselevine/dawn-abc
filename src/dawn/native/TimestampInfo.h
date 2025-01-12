@@ -10,11 +10,10 @@
 namespace dawn::native {
 
 typedef struct TimestampInfo {
-  ComputePassTimestampWrites timestampWrites;
+  QuerySetBase * querySet;
   BufferBase * queryBuffer;
   BufferBase * stagingBuffer;
   char* entryPoint;
-  bool internalTimestampWrites;
 } TimestampInfo;
 
 }

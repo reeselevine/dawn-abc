@@ -110,7 +110,7 @@ class CommandEncoder final : public ApiObjectBase {
 
     CommandBufferBase* APIFinish(const CommandBufferDescriptor* descriptor = nullptr);
 
-    Ref<ComputePassEncoder> BeginComputePass(const ComputePassDescriptor* descriptor = nullptr, bool addTimestampQuery = false);
+    Ref<ComputePassEncoder> BeginComputePass(const ComputePassDescriptor* descriptor = nullptr, bool addTimestampQueries = false);
     Ref<RenderPassEncoder> BeginRenderPass(const RenderPassDescriptor* rawDescriptor);
     ResultOrError<Ref<CommandBufferBase>> Finish(
         const CommandBufferDescriptor* descriptor = nullptr);

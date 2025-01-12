@@ -48,7 +48,7 @@ class ComputePassEncoder final : public ProgrammableEncoder {
                                           const ComputePassDescriptor* descriptor,
                                           CommandEncoder* commandEncoder,
                                           EncodingContext* encodingContext,
-                                          TimestampInfo* timestampInfo);
+                                          bool addTimestampQueries);
     static Ref<ComputePassEncoder> MakeError(DeviceBase* device,
                                              CommandEncoder* commandEncoder,
                                              EncodingContext* encodingContext,
@@ -83,7 +83,7 @@ class ComputePassEncoder final : public ProgrammableEncoder {
                        const ComputePassDescriptor* descriptor,
                        CommandEncoder* commandEncoder,
                        EncodingContext* encodingContext,
-                       TimestampInfo* timestampInfo);
+                       bool addTimestampQueries);
     ComputePassEncoder(DeviceBase* device,
                        CommandEncoder* commandEncoder,
                        EncodingContext* encodingContext,
@@ -112,6 +112,9 @@ class ComputePassEncoder final : public ProgrammableEncoder {
 
     // Keep a reference to the timestamp info for this pass so the entry point can be updated.
     TimestampInfo* mTimestampInfo = nullptr;
+
+    bool mAddTimestampQueries;
+    std::string currEntryPoint;
 };
 
 }  // namespace dawn::native

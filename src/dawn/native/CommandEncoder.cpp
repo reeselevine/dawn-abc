@@ -1136,73 +1136,26 @@ ComputePassEncoder* CommandEncoder::APIBeginComputePass(const ComputePassDescrip
     return ReturnToAPI(BeginComputePass(descriptor, true));
 }
 
-Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescriptor* descriptor, bool addTimestampQuery) {
+Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescriptor* descriptor, bool addTimestampQueries) {
     DeviceBase* device = GetDevice();
     DAWN_ASSERT(device->IsLockedByCurrentThreadIfNeeded());
-
-    TimestampInfo * timestampInfo = nullptr;
-
-    if (addTimestampQuery) {
-
-        timestampInfo = (TimestampInfo*) malloc(sizeof(TimestampInfo));
-        timestampInfo->internalTimestampWrites = false;
-
-        // Create our own timestamp writes
-        if (descriptor == nullptr || descriptor->timestampWrites == nullptr) {
-            timestampInfo->internalTimestampWrites = true;
-            ComputePassTimestampWrites timestampWrites;
-            QuerySetDescriptor q_desc;
-            StringView q_desc_label("Query set");
-            q_desc.label = q_desc_label;
-            q_desc.type = wgpu::QueryType::Timestamp;
-            q_desc.count = 2;
-            timestampWrites.querySet = device->APICreateQuerySet(&q_desc);
-            timestampWrites.beginningOfPassWriteIndex = 0;
-            timestampWrites.endOfPassWriteIndex = 1;
-            // keep track of the timestamp writes for later resolution
-            timestampInfo->timestampWrites = timestampWrites;
-        // Use existing timestamp writes
-        } else {
-          timestampInfo->timestampWrites = *descriptor->timestampWrites;
-        }
-
-        // set up query set resolution and read buffer
-        BufferDescriptor queryBufferDesc;
-        StringView queryBufferLabel("Query Resolve Buffer");
-        queryBufferDesc.label = queryBufferLabel;
-        queryBufferDesc.usage = wgpu::BufferUsage::QueryResolve | wgpu::BufferUsage::CopySrc;
-        queryBufferDesc.size = 264; // Enough for 2 timestamps (8 bytes each, each starting at a multiple of 256)
-        timestampInfo->queryBuffer = device->APICreateBufferLocked(&queryBufferDesc);
-
-        BufferDescriptor stagingBufferDesc;
-        StringView stagingBufferLabel("Timing Results Staging Buffer");
-        stagingBufferDesc.label = stagingBufferLabel;
-        stagingBufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
-        stagingBufferDesc.size = 2 * 8; // enough for two timestamps
-        timestampInfo->stagingBuffer = device->APICreateBufferLocked(&stagingBufferDesc);
-    }
-
     bool success = mEncodingContext.TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
             DAWN_TRY(ValidateComputePassDescriptor(device, descriptor));
-
             BeginComputePassCmd* cmd =
                 allocator->Allocate<BeginComputePassCmd>(Command::BeginComputePass);
-
             if (descriptor == nullptr) {
                 return {};
             }
-
             if (!descriptor->label.IsUndefined()) {
                 cmd->label = std::string(descriptor->label);
             }
-
-            if (timestampInfo != nullptr) {
-                QuerySetBase* querySet = timestampInfo->timestampWrites.querySet;
+            if (descriptor->timestampWrites != nullptr) {
+                QuerySetBase* querySet = descriptor->timestampWrites->querySet;
                 uint32_t beginningOfPassWriteIndex =
-                    timestampInfo->timestampWrites.beginningOfPassWriteIndex;
-                uint32_t endOfPassWriteIndex = timestampInfo->timestampWrites.endOfPassWriteIndex;
+                    descriptor->timestampWrites->beginningOfPassWriteIndex;
+                uint32_t endOfPassWriteIndex = descriptor->timestampWrites->endOfPassWriteIndex;
                 cmd->timestampWrites.querySet = querySet;
                 cmd->timestampWrites.beginningOfPassWriteIndex = beginningOfPassWriteIndex;
                 cmd->timestampWrites.endOfPassWriteIndex = endOfPassWriteIndex;
@@ -1216,19 +1169,16 @@ Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescri
             return {};
         },
         "encoding %s.BeginComputePass(%s).", this, descriptor);
-
     if (success) {
         const ComputePassDescriptor defaultDescriptor = {};
         if (descriptor == nullptr) {
             descriptor = &defaultDescriptor;
         }
-
         Ref<ComputePassEncoder> passEncoder =
-            ComputePassEncoder::Create(device, descriptor, this, &mEncodingContext, timestampInfo);
+            ComputePassEncoder::Create(device, descriptor, this, &mEncodingContext, addTimestampQueries);
         mEncodingContext.EnterPass(passEncoder.Get());
         return passEncoder;
     }
-
     return ComputePassEncoder::MakeError(device, this, &mEncodingContext,
                                          descriptor ? descriptor->label : nullptr);
 }
@@ -2132,11 +2082,8 @@ ResultOrError<Ref<CommandBufferBase>> CommandEncoder::Finish(
     DeviceBase* device = GetDevice();
 
     for (uint i = 0; i < timestampInfos.size(); i++) {
-      ComputePassTimestampWrites timestampWrites = timestampInfos[i]->timestampWrites;
-      APIResolveQuerySet(timestampWrites.querySet, timestampWrites.beginningOfPassWriteIndex, 1, timestampInfos[i]->queryBuffer, 0);
-      APIResolveQuerySet(timestampWrites.querySet, timestampWrites.endOfPassWriteIndex, 1, timestampInfos[i]->queryBuffer, 256);
-      APICopyBufferToBuffer(timestampInfos[i]->queryBuffer, 0, timestampInfos[i]->stagingBuffer, 0, 8);
-      APICopyBufferToBuffer(timestampInfos[i]->queryBuffer, 256, timestampInfos[i]->stagingBuffer, 8, 8);
+      APIResolveQuerySet(timestampInfos[i]->querySet, 0, 2, timestampInfos[i]->queryBuffer, 0);
+      APICopyBufferToBuffer(timestampInfos[i]->queryBuffer, 0, timestampInfos[i]->stagingBuffer, 0, 16);
     }
 
     TRACE_EVENT0(device->GetPlatform(), Recording, "CommandEncoder::Finish");

@@ -707,8 +707,7 @@ void MapCallback(WGPUMapAsyncStatus status, struct WGPUStringView message, void 
     // free erything
     info->stagingBuffer->Destroy();
     info->queryBuffer->Destroy();
-    if (info->internalTimestampWrites)
-      info->timestampWrites.querySet->Destroy();
+    info->querySet->Destroy();
     free(info->entryPoint);
     free(info);
 }
