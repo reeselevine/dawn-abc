@@ -697,6 +697,7 @@ void MapCallback(WGPUMapAsyncStatus status, struct WGPUStringView message, void 
         std::ostringstream timestampMsg;
         timestampMsg << "{\n";
         timestampMsg << "  \"entryPoint\": \"" << info->entryPoint << "\",\n";
+        timestampMsg << "  \"shaderHash\": " << info->shaderHash << ",\n";
         timestampMsg << "  \"start\": " << output[0] << ",\n";
         timestampMsg << "  \"end\": " << output[1] << "\n";
         timestampMsg << "}\n";

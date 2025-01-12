@@ -1207,7 +1207,8 @@ MaybeError ValidateAndParseShaderModule(
     const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
     const std::vector<tint::wgsl::Extension>& internalExtensions,
     ShaderModuleParseResult* parseResult,
-    OwnedCompilationMessages* outMessages) {
+    OwnedCompilationMessages* outMessages,
+    size_t shaderHash) {
     DAWN_ASSERT(parseResult != nullptr);
 
     wgpu::SType moduleType;
@@ -1272,7 +1273,7 @@ MaybeError ValidateAndParseShaderModule(
 
     if (device->IsToggleEnabled(Toggle::DumpShaders)) {
         std::ostringstream dumpedMsg;
-        dumpedMsg << "// Dumped WGSL:\n" << std::string_view(wgslDesc->code) << "\n";
+        dumpedMsg << "// Dumped WGSL:\n" << "// Shader Hash: " << shaderHash << "\n" << std::string_view(wgslDesc->code) << "\n";
         device->EmitLog(WGPULoggingType_Info, dumpedMsg.str().c_str());
     }
 
@@ -1558,7 +1559,7 @@ ShaderModuleBase::ScopedUseTintProgram ShaderModuleBase::UseTintProgram() {
         ShaderModuleParseResult parseResult;
         ValidateAndParseShaderModule(GetDevice(), Unpack(&descriptor), mInternalExtensions,
                                      &parseResult,
-                                     /*compilationMessages=*/nullptr)
+                                     /*compilationMessages=*/nullptr, ComputeContentHash())
             .AcquireSuccess();
         DAWN_ASSERT(parseResult.tintProgram != nullptr);
 

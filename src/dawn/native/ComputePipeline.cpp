@@ -64,6 +64,7 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
     SetContentHash(ComputeContentHash());
     GetObjectTrackingList()->Track(this);
 
+    shaderHash = descriptor->compute.module->ComputeContentHash();
     // set entry point name
     std::string_view str_view = descriptor->compute.entryPoint;
     std::string str(str_view);
@@ -106,6 +107,10 @@ ObjectType ComputePipelineBase::GetType() const {
 
 std::string ComputePipelineBase::GetEntryPoint() {
   return entryPoint;
+}
+
+size_t ComputePipelineBase::GetShaderHash() {
+  return shaderHash;
 }
 
 bool ComputePipelineBase::EqualityFunc::operator()(const ComputePipelineBase* a,

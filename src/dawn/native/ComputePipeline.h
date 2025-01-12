@@ -58,6 +58,7 @@ class ComputePipelineBase : public PipelineBase,
     };
 
     std::string GetEntryPoint();
+    size_t GetShaderHash();
 
   protected:
     void DestroyImpl() override;
@@ -66,6 +67,7 @@ class ComputePipelineBase : public PipelineBase,
     ComputePipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
     std::string entryPoint;
+    size_t shaderHash;
 };
 
 }  // namespace dawn::native

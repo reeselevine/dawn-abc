@@ -177,6 +177,8 @@ ObjectType ComputePassEncoder::GetType() const {
 }
 
 void ComputePassEncoder::APIEnd() {
+    if (mTimestampInfo != nullptr)
+        mCommandEncoder->AddTimestampQueryInfo(mTimestampInfo);
     if (mEnded && IsValidationEnabled()) {
         GetDevice()->HandleError(DAWN_VALIDATION_ERROR("%s was already ended.", this));
         return;
@@ -435,10 +437,10 @@ void ComputePassEncoder::APISetPipeline(ComputePipelineBase* pipeline) {
     // At this point we can add the timestamp info to the command encoder
     if (mTimestampInfo != nullptr) {
       std::string entryPoint = pipeline->GetEntryPoint();
+      mTimestampInfo->shaderHash = pipeline->GetShaderHash();
       char* cstr = static_cast<char*>(malloc(entryPoint.size() + 1));
       std::copy(entryPoint.c_str(), entryPoint.c_str() + entryPoint.size() + 1, cstr);
       mTimestampInfo->entryPoint = cstr;
-      mCommandEncoder->AddTimestampQueryInfo(mTimestampInfo);
     }
     mEncodingContext->TryEncode(
         this,

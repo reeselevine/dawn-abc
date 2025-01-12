@@ -13,6 +13,7 @@ typedef struct TimestampInfo {
   ComputePassTimestampWrites timestampWrites;
   BufferBase * queryBuffer;
   BufferBase * stagingBuffer;
+  size_t shaderHash;
   char* entryPoint;
   bool internalTimestampWrites;
 } TimestampInfo;

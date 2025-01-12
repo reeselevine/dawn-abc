@@ -1210,7 +1210,7 @@ ResultOrError<Ref<ShaderModuleBase>> DeviceBase::GetOrCreateShaderModule(
                 // now.
                 DAWN_ASSERT(!IsValidationEnabled());
                 DAWN_TRY(ValidateAndParseShaderModule(this, descriptor, internalExtensions,
-                                                      parseResult, unownedMessages));
+                                                      parseResult, unownedMessages, blueprintHash));
             }
 
             auto resultOrError = [&]() -> ResultOrError<Ref<ShaderModuleBase>> {
@@ -2348,9 +2348,15 @@ ResultOrError<Ref<ShaderModuleBase>> DeviceBase::CreateShaderModule(
     if (IsValidationEnabled()) {
         DAWN_TRY_ASSIGN_CONTEXT(unpacked, ValidateAndUnpack(descriptor),
                                 "validating and unpacking %s", descriptor);
+
+        ShaderModuleBase blueprint(this, unpacked, internalExtensions,
+                               ApiObjectBase::kUntrackedByDevice);
+        const size_t blueprintHash = blueprint.ComputeContentHash();
+
+
         DAWN_TRY_CONTEXT(ValidateAndParseShaderModule(
                              this, unpacked, internalExtensions, &parseResult,
-                             compilationMessages ? compilationMessages->get() : nullptr),
+                             compilationMessages ? compilationMessages->get() : nullptr, blueprintHash),
                          "validating %s", descriptor);
     } else {
         unpacked = Unpack(descriptor);
