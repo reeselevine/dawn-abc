@@ -308,7 +308,7 @@ ResultOrError<Ref<DeviceBase>> AdapterBase::CreateDeviceInternal(
       }
     }
 
-    if (!hasTimestampQueries) {
+    if (!hasTimestampQueries && mTogglesState.IsEnabled(Toggle::InternalComputeTimestampQueries)) {
       updatedFeatures.push_back(wgpu::FeatureName::TimestampQuery);
       updatedDescriptor.requiredFeatureCount = updatedDescriptor.requiredFeatureCount + 1;
     }
@@ -326,7 +326,8 @@ ResultOrError<Ref<DeviceBase>> AdapterBase::CreateDeviceInternal(
     deviceToggles.InheritFrom(mTogglesState);
     // Default toggles for all backend
     deviceToggles.Default(Toggle::LazyClearResourceOnFirstUse, true);
-    deviceToggles.Default(Toggle::TimestampQuantization, false);
+    deviceToggles.Default(Toggle::TimestampQuantization, true);
+
     if (mInstance->IsBackendValidationEnabled()) {
         deviceToggles.Default(Toggle::UseUserDefinedLabelsInBackend, true);
     }

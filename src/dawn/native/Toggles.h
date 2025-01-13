@@ -153,6 +153,8 @@ enum class Toggle {
     D3D11UseUnmonitoredFence,
     IgnoreImportedAHardwareBufferVulkanImageSize,
 
+    InternalComputeTimestampQueries,
+
     EnumCount,
     InvalidEnum = EnumCount,
 };

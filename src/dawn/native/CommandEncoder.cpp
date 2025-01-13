@@ -1142,7 +1142,8 @@ Ref<ComputePassEncoder> CommandEncoder::BeginComputePass(const ComputePassDescri
 
     TimestampInfo * timestampInfo = nullptr;
 
-    if (addTimestampQuery) {
+    if (addTimestampQuery && GetDevice()->IsToggleEnabled(Toggle::InternalComputeTimestampQueries)) {
+
         void* memory = malloc(sizeof(TimestampInfo));
         timestampInfo = new (memory) TimestampInfo();
         timestampInfo->internalTimestampWrites = false;

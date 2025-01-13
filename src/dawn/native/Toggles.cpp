@@ -626,6 +626,10 @@ static constexpr ToggleEnumAndInfoList kToggleNameAndInfoList = {{
       "Don't validate the required VkImage size against the size of the AHardwareBuffer on import. "
       "Some drivers report the wrong size.",
       "https://crbug.com/333424893", ToggleStage::Device}},
+    {Toggle::InternalComputeTimestampQueries,
+     {"internal_compute_timestamp_queries",
+      "Internally record timestamp queries on compute pass boundaries.",
+      "https://crbug.com/dawn/4242", ToggleStage::Adapter}},
     // Comment to separate the }} so it is clearer what to copy-paste to add a toggle.
 }};
 }  // anonymous namespace
