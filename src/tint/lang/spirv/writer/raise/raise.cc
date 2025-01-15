@@ -44,6 +44,7 @@
 #include "src/tint/lang/core/ir/transform/preserve_padding.h"
 #include "src/tint/lang/core/ir/transform/prevent_infinite_loops.h"
 #include "src/tint/lang/core/ir/transform/robustness.h"
+#include "src/tint/lang/core/ir/transform/smsg.h"
 #include "src/tint/lang/core/ir/transform/std140.h"
 #include "src/tint/lang/core/ir/transform/vectorize_scalar_matrix_constructors.h"
 #include "src/tint/lang/core/ir/transform/zero_init_workgroup_memory.h"
@@ -77,6 +78,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     if (!options.disable_robustness) {
         RUN_TRANSFORM(core::ir::transform::PreventInfiniteLoops, module);
     }
+    RUN_TRANSFORM(core::ir::transform::SMSG, module);
 
     core::ir::transform::BinaryPolyfillConfig binary_polyfills;
     binary_polyfills.bitshift_modulo = true;
