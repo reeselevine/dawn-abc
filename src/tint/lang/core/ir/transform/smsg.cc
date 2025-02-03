@@ -21,20 +21,22 @@ struct State {
     Builder b{ir};
 
     /// The type manager.
-    core::type::Manager& ty{ir.Types()};
+    type::Manager& ty{ir.Types()};
 
     /// The symbol table.
     SymbolTable& sym{ir.symbols};
 
-    // Rewrite type to atomic
-    // TODO: handle structs
-    const type::Type* RewriteType(const type::Type* type) {
+    /// Map from structs with non-atomic members to structs with atomic members
+    Hashmap<const type::Struct*, const type::Struct*, 4> struct_map{};
+
+    // Replace type used in instruction result 
+    const type::Type* ReplaceType(const type::Type* type) {
       return tint::Switch(type,
         [&](const type::Pointer* ptr) {
-          return ty.ptr(ptr->AddressSpace(), RewriteType(ptr->UnwrapPtr()), ptr->Access());
+          return ty.ptr(ptr->AddressSpace(), ReplaceType(ptr->UnwrapPtr()), ptr->Access());
         },
         [&](const type::Array* ar) {
-          auto newElemType = RewriteType(ar->ElemType());
+          auto newElemType = ReplaceType(ar->ElemType());
           auto typeAndCount = ar->Count();
           return tint::Switch(typeAndCount,
             [&](const type::ConstantArrayCount* count) {
@@ -44,6 +46,9 @@ struct State {
               return ty.runtime_array(newElemType, ar->Stride());
             },
             TINT_ICE_ON_NO_MATCH); 
+        },
+        [&](const type::Struct* st) {
+          return *struct_map.Get(st).value;
         },
         [&](const type::I32* i32) {
           // wrap the i32 in an atomic type
@@ -57,26 +62,35 @@ struct State {
       );
     }
 
-    void ForwardNewTypes(InstructionResult* res) {
+    // Handle usages of an instruction result given new type
+    void Replace(InstructionResult* res) {
       res->ForEachUseUnsorted([&](Usage use) {
         auto* inst = use.instruction;
         tint::Switch(inst,
           [&](Access* access) {
-            auto* newType = RewriteType(access->Result(0)->Type());
+            auto* newType = ReplaceType(access->Result(0)->Type());
             auto *innerRes = access->Result(0);
             innerRes->SetType(newType);
-            ForwardNewTypes(innerRes);
+            Replace(innerRes);
           },
           [&](Load* load) {
+            // TODO: convert this into a call to a helper function if the inner type is not a scalar
             auto* replacement = b.CallWithResult(load->DetachResult(), BuiltinFn::kAtomicLoad, load->From());
             load->ReplaceWith(replacement);
             load->Destroy();
+          },
+          [&](Let* let) {
+            // let instructions pass the type through
+            auto *innerRes = let->Result(0);
+            innerRes->SetType(res->Type());
+            Replace(innerRes);
           },
           TINT_ICE_ON_NO_MATCH
         );
       });
     }
 
+    // Rewrite type used by shader. Unhandled types raise an internal compiler error
     const type::Type* RewriteType(const type::Type* type, std::vector<Value*> indexStack) {
       return tint::Switch(type,
         [&](const type::Atomic*) {
@@ -84,6 +98,7 @@ struct State {
           // TODO: is this necessary due to short-circuit in VisitIDDInst?
           return type;
         },
+        // If we have reached an i32/u32 we need to wrap it in an atomic type
         [&](const type::I32* i32) {
           // wrap the i32 in an atomic type
           return ty.Get<type::Atomic>(i32);
@@ -127,7 +142,8 @@ struct State {
               for (auto flag : st->StructFlags()) {
                 _newStruct->SetStructFlag(flag);
               }
-              //st->Destroy();
+              // add the mapping from the initial struct to the new struct
+              struct_map.Add(st, _newStruct);
               return _newStruct;
             },
             TINT_ICE_ON_NO_MATCH
@@ -138,22 +154,22 @@ struct State {
       );
     }
 
+    // Rewrite the type of the binding point and then replace usages of the binding point using the updated type
     void RewriteBindingPoint(Var* bp, std::vector<Value*> indexStack) {
       auto* oldPtr = bp->Result(0)->Type()->As<type::Pointer>();
       TINT_ASSERT(oldPtr);
 
       auto* newPtr = ty.ptr(oldPtr->AddressSpace(), RewriteType(oldPtr->UnwrapPtr(), indexStack), oldPtr->Access());
       bp->Result(0)->SetType(newPtr);
-      ForwardNewTypes(bp->Result(0));
+      Replace(bp->Result(0));
     }
 
     // Visit an instruction which is an index/data dependency of some access
-    // Index stack maintains the order in which a root data structure is traversed, to determine
+    // Index stack maintains which members of a data structure are accessed, to determine
     // which members of a struct need to be loaded atomically
     // TODO: Control dependencies, maybe don't fit in here?
     void VisitIDDInst(Instruction* inst, std::vector<Value*> indexStack) {
       tint::Switch(inst,
-        // TODO
         // we don't need to visit the indices of the access, because they will be handled by a separate visitor
         // however, we do record the indices in the indexStack
         [&](Access *a) {
