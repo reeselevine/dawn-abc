@@ -23,6 +23,9 @@ struct State {
     /// The type manager.
     core::type::Manager& ty{ir.Types()};
 
+    /// The symbol table.
+    SymbolTable& sym{ir.symbols};
+
     // Rewrite type to atomic
     // TODO: handle structs
     const type::Type* RewriteType(const type::Type* type) {
@@ -74,10 +77,11 @@ struct State {
       });
     }
 
-    const type::Type* TranslateBindingType(const type::Type* type) {
+    const type::Type* RewriteType(const type::Type* type, std::vector<Value*> indexStack) {
       return tint::Switch(type,
         [&](const type::Atomic*) {
           // atomic types are already in the correct format
+          // TODO: is this necessary due to short-circuit in VisitIDDInst?
           return type;
         },
         [&](const type::I32* i32) {
@@ -89,7 +93,9 @@ struct State {
           return ty.Get<type::Atomic>(u32);
         },
         [&](const type::Array* ar) {
-          auto newElemType = TranslateBindingType(ar->ElemType());
+          // the index of the array access may be unknown, but it's not needed as all array members have the same type
+          indexStack.pop_back();
+          auto newElemType = RewriteType(ar->ElemType(), indexStack);
           auto typeAndCount = ar->Count();
           return tint::Switch(typeAndCount,
             [&](const type::ConstantArrayCount* count) {
@@ -100,31 +106,66 @@ struct State {
             },
             TINT_ICE_ON_NO_MATCH); 
         },
+        [&](const type::Struct* st) {
+          auto* idx = indexStack.back();
+          indexStack.pop_back();
+          // struct accesses should always be constants
+          auto* newStruct = tint::Switch(idx,
+            [&](Constant* c) {
+              auto members = st->Members();
+              // the size here doesn't matter, the vector will be resized to handle the correct length
+              Vector<const type::StructMember*, 4> newMembers(members);
+              // get the old member and recursively rewrite it
+              auto newMemberIdx = c->Value()->ValueAs<uint32_t>();
+              auto* oldMember = members[newMemberIdx];
+              auto* newMemberType = RewriteType(oldMember->Type(), indexStack);
+              auto* newMember = ty.Get<type::StructMember>(oldMember->Name(), newMemberType, oldMember->Index(), oldMember->Offset(), oldMember->Align(), oldMember->Size(), oldMember->Attributes());
+              // update the new members with the new member 
+              newMembers[newMemberIdx] = newMember;
+              // create a new struct with the new members
+              auto* _newStruct = ty.Struct(sym.New(st->Name().Name()), newMembers);
+              for (auto flag : st->StructFlags()) {
+                _newStruct->SetStructFlag(flag);
+              }
+              //st->Destroy();
+              return _newStruct;
+            },
+            TINT_ICE_ON_NO_MATCH
+          );
+          return newStruct;
+        },
         TINT_ICE_ON_NO_MATCH
       );
     }
 
-    void TranslateBindingPoint(Var* bp) {
+    void RewriteBindingPoint(Var* bp, std::vector<Value*> indexStack) {
       auto* oldPtr = bp->Result(0)->Type()->As<type::Pointer>();
       TINT_ASSERT(oldPtr);
 
-      auto* newPtr = ty.ptr(oldPtr->AddressSpace(), TranslateBindingType(oldPtr->UnwrapPtr()), oldPtr->Access());
+      auto* newPtr = ty.ptr(oldPtr->AddressSpace(), RewriteType(oldPtr->UnwrapPtr(), indexStack), oldPtr->Access());
       bp->Result(0)->SetType(newPtr);
       ForwardNewTypes(bp->Result(0));
     }
 
     // Visit an instruction which is an index/data dependency of some access
+    // Index stack maintains the order in which a root data structure is traversed, to determine
+    // which members of a struct need to be loaded atomically
     // TODO: Control dependencies, maybe don't fit in here?
-    void VisitIDDInst(Instruction* inst) {
+    void VisitIDDInst(Instruction* inst, std::vector<Value*> indexStack) {
       tint::Switch(inst,
         // TODO
-        // we can ignore the indices of the access, because they will be handled by a separate visitor
+        // we don't need to visit the indices of the access, because they will be handled by a separate visitor
+        // however, we do record the indices in the indexStack
         [&](Access *a) {
-          VisitIDDValue(a->Object());
+          auto indices = a->Indices();
+          for (auto i = indices.rbegin(); i != indices.rend(); i++) {
+            indexStack.push_back(*i);
+          }
+          VisitIDDValue(a->Object(), indexStack);
         },
 	      [&](Binary *i) {
-          VisitIDDValue(i->LHS());
-          VisitIDDValue(i->RHS());
+          VisitIDDValue(i->LHS(), indexStack);
+          VisitIDDValue(i->RHS(), indexStack);
         },
         // TODO
         [&](Bitcast *bt) {
@@ -138,17 +179,17 @@ struct State {
         // TODO think about jumping into call
         [&](Call *c) {
           for(auto* a: c->Args()) {
-            VisitIDDValue(a);
+            VisitIDDValue(a, indexStack);
           }
         },
 	      [&](Let *i) {
-          VisitIDDValue(i->Value());
+          VisitIDDValue(i->Value(), indexStack);
 	      },
         // TODO
         [&](LoadVectorElement *lve) {
         },
 	      [&](Load *l) { 
-          VisitIDDValue(l->From());
+          VisitIDDValue(l->From(), indexStack);
         },
         // TODO
         [&](Unary *u) {
@@ -157,9 +198,9 @@ struct State {
         [&](Var *v) {
           if (v->BindingPoint()) {
             // Binding points are where atomic translation might need to take place
-            TranslateBindingPoint(v);
+            RewriteBindingPoint(v, indexStack);
           } else {
-            VisitIDDValue(v->Initializer());
+            VisitIDDValue(v->Initializer(), indexStack);
           }
         },
         TINT_ICE_ON_NO_MATCH
@@ -167,10 +208,10 @@ struct State {
     }
 
     // Visit index or data dependent values
-    void VisitIDDValue(Value* i) {
+    void VisitIDDValue(Value* i, std::vector<Value*> indexStack) {
       if (auto* r = i->As<InstructionResult>()) {
         // we need to follow the chain of this index dependency
-        VisitIDDInst(r->Instruction());
+        VisitIDDInst(r->Instruction(), indexStack);
       } else if (auto* c = i->As<Constant>()) {
         // we can safely ignore constants
         return;
@@ -182,7 +223,8 @@ struct State {
     // Visiting an access simply means visiting its index dependencies
     void VisitAccess(Access *a) {
       for (auto i : a->Indices()) {
-        VisitIDDValue(i);
+        std::vector<Value*> indexStack;
+        VisitIDDValue(i, indexStack);
       }
     }
 
