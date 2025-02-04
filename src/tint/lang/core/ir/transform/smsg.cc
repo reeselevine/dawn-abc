@@ -8,7 +8,14 @@
 
 #include <iostream>
 
+using namespace tint::core::number_suffixes;  // NOLINT
+
 namespace tint::core::ir::transform {
+
+// TODO:
+// handle arbitrary size struct fields
+// handle control dependencies
+// handle interprocedural analysis
 
 namespace {
 
@@ -29,8 +36,9 @@ struct State {
     /// Map from structs with non-atomic members to structs with atomic members
     Hashmap<const type::Struct*, const type::Struct*, 4> struct_map{};
 
-    /// Map from a type to a helper function that will convert its rewritten form back to it.
-    Hashmap<const type::Type*, Function*, 4> convert_helpers{};
+    /// Map from a struct to a helper function that will either convert a rewritten type 
+    /// to an original type (for loads) or store an original type to a rewritten type.
+    Hashmap<const type::Struct*, Function*, 4> convert_helpers{};
 
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
@@ -65,7 +73,8 @@ struct State {
       );
     }
 
-    Value* Convert(Value* source, const type::Type* targetType) {
+    // Converts load instruction to load the target type, given an input value
+    Value* ConvertLoad(Value* source, const type::Type* targetType) {
       auto* sourcePtr = source->Type()->As<type::Pointer>();
       TINT_ASSERT(sourcePtr);
       // types match, can load directly
@@ -73,12 +82,14 @@ struct State {
         return b.Load(source)->Result(0);
       } 
       return tint::Switch(targetType,
+        // type is scalar, load atomically
         [&](const type::NumericScalar *ns) {
           return b.Call(ns, BuiltinFn::kAtomicLoad, source)->Result(0);
         },
+        // call a helper function which takes in a pointer to the source type and returns the target type
         [&](const type::Struct *st) {
-          auto* helper = convert_helpers.GetOrAdd(targetType, [&] {
-            auto* func = b.Function(targetType);
+          auto* helper = convert_helpers.GetOrAdd(st, [&] {
+            auto* func = b.Function(st);
             auto* input = b.FunctionParam("tint_input", sourcePtr);
             func->SetParams({input});
             b.Append(func->Block(), [&] {
@@ -89,7 +100,7 @@ struct State {
               for (auto* member : st->Members()) {
                 auto* accessType = ty.ptr(sourcePtr->AddressSpace(), sourceStruct->Element(index), sourcePtr->Access());
                 auto* extractRes = b.Access(accessType, input, u32(index))->Result(0);
-                args.Push(Convert(extractRes, member->Type()));
+                args.Push(ConvertLoad(extractRes, member->Type()));
                 index++;
               }
               b.Return(func, b.Construct(st, std::move(args)));
@@ -98,8 +109,85 @@ struct State {
           });
           return b.Call(helper, source)->Result(0);
         },
+        // loop through the pointer to the source type and convert each element to the target type
+        [&](const type::Array *arr) {
+          auto* fromType = ty.ptr(sourcePtr->AddressSpace(), sourcePtr->StoreType()->Elements().type, sourcePtr->Access());
+          auto* newArray = b.Var(ty.ptr(fluent_types::function, arr));
+          b.LoopRange(ty, 0_u, u32(arr->ConstantCount().value()), 1_u, [&](Value* idx) {
+            // Convert arr[idx] and store to newArray[idx];
+            auto* from = b.Access(fromType, source, idx)->Result(0);
+            auto* to = b.Access(ty.ptr(fluent_types::function, arr->ElemType()), newArray, idx);
+            b.Store(to, ConvertLoad(from, arr->ElemType()));
+          });
+          return b.Load(newArray)->Result(0);
+        },
         TINT_ICE_ON_NO_MATCH
       );
+    }
+
+    // Converts store instruction to store to the target, given a source value
+    void ConvertStore(Value* from, Value* to) {
+      auto* toPtr = to->Type()->As<type::Pointer>();
+      TINT_ASSERT(toPtr);
+      auto* toStoreType = toPtr->StoreType();
+      // types match, can store directly
+      if (toStoreType == from->Type()) {
+        b.Store(to, from);
+      } else {
+        tint::Switch(toStoreType,
+          // store type is atomic, store the value atomically
+          [&](const type::Atomic*) {
+            b.Call(ty.void_(), BuiltinFn::kAtomicStore, to, from);
+          },
+          // call a helper which takes in a pointer to the store type and the value to store and stores it
+          [&](const type::Struct *st) {
+            auto* helper = convert_helpers.GetOrAdd(st, [&] {
+              auto* func = b.Function(ty.void_());
+              auto* fromInput = b.FunctionParam("tint_from", from->Type());
+              auto* toInput = b.FunctionParam("tint_to", to->Type());
+              func->SetParams({fromInput, toInput});
+              b.Append(func->Block(), [&] {
+                auto* fromStruct = from->Type()->As<type::Struct>();
+                TINT_ASSERT(fromStruct);
+                uint32_t index = 0;
+                auto* fromStructVarRes = b.Var("tint_from_ptr", fromInput)->Result(0);
+                auto* fromStructPtr = fromStructVarRes->Type()->As<type::Pointer>();
+                TINT_ASSERT(fromStructPtr);
+
+                for (auto* member : st->Members()) {
+                  auto* toAccessType = ty.ptr(toPtr->AddressSpace(), member->Type(), toPtr->Access());
+                  auto* toAccessRes = b.Access(toAccessType, toInput, u32(index))->Result(0);
+
+                  auto* fromAccessType = ty.ptr(fromStructPtr->AddressSpace(), fromStruct->Element(index), fromStructPtr->Access());
+                  auto* fromAccessRes = b.Access(fromAccessType, fromStructVarRes, u32(index))->Result(0);
+                  auto* fromLoadRes = b.Load(fromAccessRes)->Result(0);
+                  ConvertStore(fromLoadRes, toAccessRes);
+                  index++;
+                }
+                b.Return(func);
+              });
+              return func;
+            });
+            b.Call(helper, from, to);
+          },
+          // loop through each element in the array to store it at that offset in the target
+          [&](const type::Array *arr) {
+            auto* fromArr = from->Type()->As<type::Array>();
+            TINT_ASSERT(fromArr);
+            auto* fromArrVarRes = b.Var("tint_from_arr_ptr", from)->Result(0);
+            auto* fromArrPtr = fromArrVarRes->Type()->As<type::Pointer>();
+            auto* fromAccessType = ty.ptr(fromArrPtr->AddressSpace(), fromArr->ElemType(), fromArrPtr->Access());
+            auto* toAccessType = ty.ptr(toPtr->AddressSpace(), arr->ElemType(), toPtr->Access());
+            b.LoopRange(ty, 0_u, u32(arr->ConstantCount().value()), 1_u, [&](Value* idx) {
+              auto* fromAccessRes = b.Access(fromAccessType, fromArrVarRes, idx)->Result(0);
+              auto* loadRes = b.Load(fromAccessRes)->Result(0);
+              auto* toAccessRes = b.Access(toAccessType, to, idx)->Result(0);
+              ConvertStore(loadRes, toAccessRes);
+            });
+          },
+          TINT_ICE_ON_NO_MATCH
+        );
+      }
     }
 
     // Handle usages of an instruction result given new type
@@ -115,10 +203,16 @@ struct State {
           },
           [&](Load* load) {
             b.InsertBefore(load, [&] {
-              auto* converted = Convert(load->From(), load->Result(0)->Type());
+              auto* converted = ConvertLoad(load->From(), load->Result(0)->Type());
               load->Result(0)->ReplaceAllUsesWith(converted);
             });
             load->Destroy();
+          },
+          [&](Store* store) {
+            b.InsertBefore(store, [&] {
+              ConvertStore(store->From(), store->To());
+            });
+            store->Destroy();
           },
           [&](Let* let) {
             // let instructions pass the type through
@@ -266,15 +360,24 @@ struct State {
 
     // Visit index or data dependent values
     void VisitIDDValue(Value* i, std::vector<Value*> indexStack) {
-      if (auto* r = i->As<InstructionResult>()) {
-        // we need to follow the chain of this index dependency
-        VisitIDDInst(r->Instruction(), indexStack);
-      } else if (auto* c = i->As<Constant>()) {
-        // we can safely ignore constants
-        return;
-      } else {
-        TINT_ICE() << "unhandled value\n";
-      }
+      tint::Switch(i,
+        [&](InstructionResult* res) {
+          // we need to follow the chain of this index dependency
+          VisitIDDInst(res->Instruction(), indexStack);
+        },
+        [&](Constant* c) {
+          // we can safely ignore constants
+          return;
+        },
+        [&](FunctionParam *fp) {
+          // currently we are only visiting compute entry point, in which case function params are built-ins (e.g., invocation id)
+          // TODO: for interprocedural analysis, need to trace calls of this function and follow input parameter chains
+          return;
+        },
+        [&](Default) {
+          TINT_ICE() << "unhandled value:" << ir.NameOf(i).Name() << ", " << i->Type()->FriendlyName() << "\n";
+        }
+      );
     }
 
     // Visiting an access simply means visiting its index dependencies
