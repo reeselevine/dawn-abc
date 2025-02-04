@@ -65,62 +65,42 @@ struct State {
       );
     }
 
-    Function* BuildHelper(const type::Type* targetType, const type::Pointer* inputType) {
-      return convert_helpers.GetOrAdd(targetType, [&] {
-        auto* func = b.Function(targetType);
-        auto* input = b.FunctionParam("tint_input", inputType);
-        func->SetParams({input});
-        b.Append(func->Block(), [&] {
-          tint::Switch(targetType,
-            [&](const type::Struct* st) {
-              auto* inputStruct = inputType->StoreType()->As<type::Struct>();
+    Value* Convert(Value* source, const type::Type* targetType) {
+      auto* sourcePtr = source->Type()->As<type::Pointer>();
+      TINT_ASSERT(sourcePtr);
+      // types match, can load directly
+      if (targetType == sourcePtr->StoreType()) {
+        return b.Load(source)->Result(0);
+      } 
+      return tint::Switch(targetType,
+        [&](const type::NumericScalar *ns) {
+          return b.Call(ns, BuiltinFn::kAtomicLoad, source)->Result(0);
+        },
+        [&](const type::Struct *st) {
+          auto* helper = convert_helpers.GetOrAdd(targetType, [&] {
+            auto* func = b.Function(targetType);
+            auto* input = b.FunctionParam("tint_input", sourcePtr);
+            func->SetParams({input});
+            b.Append(func->Block(), [&] {
+              auto* sourceStruct = sourcePtr->StoreType()->As<type::Struct>();
+              TINT_ASSERT(sourceStruct);
               uint32_t index = 0;
               Vector<Value*, 4> args;
               for (auto* member : st->Members()) {
-                // types are the same, can load directly
-                auto* accessType = ty.ptr(inputType->AddressSpace(), inputStruct->Element(index), inputType->Access());
+                auto* accessType = ty.ptr(sourcePtr->AddressSpace(), sourceStruct->Element(index), sourcePtr->Access());
                 auto* extractRes = b.Access(accessType, input, u32(index))->Result(0);
-                if (member->Type() == inputStruct->Element(index)) {
-                  args.Push(b.Load(extractRes)->Result(0));
-                // otherwise need to convert the type
-                } else {
-                  tint::Switch(member->Type(),
-                    // type is a scalar, load it atomically
-                    [&](const type::NumericScalar* ns) {
-                      args.Push(b.Call(ns, BuiltinFn::kAtomicLoad, extractRes)->Result(0));
-                    },
-                    // type is a nested struct/array, recursively build the helper
-                    [&](Default) {
-                      auto* helper = BuildHelper(member->Type(), accessType);
-                      args.Push(b.Call(helper, extractRes)->Result(0));
-                    }
-                  );
-                }
+                args.Push(Convert(extractRes, member->Type()));
                 index++;
               }
               b.Return(func, b.Construct(st, std::move(args)));
-            },
-            TINT_ICE_ON_NO_MATCH
-          );
-        });
-        return func;
-      });
-    }
-
-
-    /// Convert a value that contains atomic types to an instruction result with the original type.
-    Call* Convert(InstructionResult* result, Value* source) {
-      return tint::Switch(result->Type(),
-        [&](const type::NumericScalar*) {
-          return b.CallWithResult(result, BuiltinFn::kAtomicLoad, source);
+            });
+            return func;
+          });
+          return b.Call(helper, source)->Result(0);
         },
-        [&](Default) {
-          auto* helper = BuildHelper(result->Type(), source->Type()->As<type::Pointer>());
-          return b.CallWithResult(result, helper, source);
-        }
+        TINT_ICE_ON_NO_MATCH
       );
     }
- 
 
     // Handle usages of an instruction result given new type
     void Replace(InstructionResult* res) {
@@ -134,8 +114,10 @@ struct State {
             Replace(innerRes);
           },
           [&](Load* load) {
-            auto* newCall = Convert(load->DetachResult(), load->From());
-            load->ReplaceWith(newCall);
+            b.InsertBefore(load, [&] {
+              auto* converted = Convert(load->From(), load->Result(0)->Type());
+              load->Result(0)->ReplaceAllUsesWith(converted);
+            });
             load->Destroy();
           },
           [&](Let* let) {
