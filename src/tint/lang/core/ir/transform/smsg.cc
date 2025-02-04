@@ -29,6 +29,9 @@ struct State {
     /// Map from structs with non-atomic members to structs with atomic members
     Hashmap<const type::Struct*, const type::Struct*, 4> struct_map{};
 
+    /// Map from a type to a helper function that will convert its rewritten form back to it.
+    Hashmap<const type::Type*, Function*, 4> convert_helpers{};
+
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
       return tint::Switch(type,
@@ -62,6 +65,63 @@ struct State {
       );
     }
 
+    Function* BuildHelper(const type::Type* targetType, const type::Pointer* inputType) {
+      return convert_helpers.GetOrAdd(targetType, [&] {
+        auto* func = b.Function(targetType);
+        auto* input = b.FunctionParam("tint_input", inputType);
+        func->SetParams({input});
+        b.Append(func->Block(), [&] {
+          tint::Switch(targetType,
+            [&](const type::Struct* st) {
+              auto* inputStruct = inputType->StoreType()->As<type::Struct>();
+              uint32_t index = 0;
+              Vector<Value*, 4> args;
+              for (auto* member : st->Members()) {
+                // types are the same, can load directly
+                auto* accessType = ty.ptr(inputType->AddressSpace(), inputStruct->Element(index), inputType->Access());
+                auto* extractRes = b.Access(accessType, input, u32(index))->Result(0);
+                if (member->Type() == inputStruct->Element(index)) {
+                  args.Push(b.Load(extractRes)->Result(0));
+                // otherwise need to convert the type
+                } else {
+                  tint::Switch(member->Type(),
+                    // type is a scalar, load it atomically
+                    [&](const type::NumericScalar* ns) {
+                      args.Push(b.Call(ns, BuiltinFn::kAtomicLoad, extractRes)->Result(0));
+                    },
+                    // type is a nested struct/array, recursively build the helper
+                    [&](Default) {
+                      auto* helper = BuildHelper(member->Type(), accessType);
+                      args.Push(b.Call(helper, extractRes)->Result(0));
+                    }
+                  );
+                }
+                index++;
+              }
+              b.Return(func, b.Construct(st, std::move(args)));
+            },
+            TINT_ICE_ON_NO_MATCH
+          );
+        });
+        return func;
+      });
+    }
+
+
+    /// Convert a value that contains atomic types to an instruction result with the original type.
+    Call* Convert(InstructionResult* result, Value* source) {
+      return tint::Switch(result->Type(),
+        [&](const type::NumericScalar*) {
+          return b.CallWithResult(result, BuiltinFn::kAtomicLoad, source);
+        },
+        [&](Default) {
+          auto* helper = BuildHelper(result->Type(), source->Type()->As<type::Pointer>());
+          return b.CallWithResult(result, helper, source);
+        }
+      );
+    }
+ 
+
     // Handle usages of an instruction result given new type
     void Replace(InstructionResult* res) {
       res->ForEachUseUnsorted([&](Usage use) {
@@ -74,9 +134,8 @@ struct State {
             Replace(innerRes);
           },
           [&](Load* load) {
-            // TODO: convert this into a call to a helper function if the inner type is not a scalar
-            auto* replacement = b.CallWithResult(load->DetachResult(), BuiltinFn::kAtomicLoad, load->From());
-            load->ReplaceWith(replacement);
+            auto* newCall = Convert(load->DetachResult(), load->From());
+            load->ReplaceWith(newCall);
             load->Destroy();
           },
           [&](Let* let) {
