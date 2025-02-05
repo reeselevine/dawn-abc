@@ -13,9 +13,10 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::core::ir::transform {
 
 // TODO:
-// don't translate read-only buffers
 // handle control dependencies
 // handle interprocedural analysis
+// handle stores/loads to local memory, vector elements
+// optimization: dynamically determine if buffer is read-only
 
 namespace {
 
@@ -298,11 +299,11 @@ struct State {
       Replace(bp->Result(0));
     }
 
-    // Checks whether a variable type needs to be rewritten, either because it is a binding point or becuase it is a
+    // Checks whether a variable type needs to be rewritten, either because it is a binding point or because it is a
     // root block workgroup memory variable
     bool NeedsRewrite(Var* var) {
       auto* ptr = var->Result(0)->Type()->As<type::Pointer>();
-      return var->BindingPoint() || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
+      return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
     }
 
     // Visit an instruction which is an index/data dependency of some access
@@ -321,42 +322,56 @@ struct State {
           VisitIDDValue(a->Object(), indexStack);
         },
 	      [&](Binary *i) {
-          VisitIDDValue(i->LHS(), indexStack);
-          VisitIDDValue(i->RHS(), indexStack);
+          // data dependencies will have their own stack
+          std::vector<Value*> lhsStack;
+          VisitIDDValue(i->LHS(), lhsStack);
+          std::vector<Value*> rhsStack;
+          VisitIDDValue(i->RHS(), rhsStack);
         },
         [&](CoreBuiltinCall *cbc) {
           // we can short circuit if the value is already loaded atomically
           if (cbc->Func() == BuiltinFn::kAtomicLoad) {
             return;
           } else {
+            // each argument will have its own stack
             for(auto* a: cbc->Args()) {
-              VisitIDDValue(a, indexStack);
+              std::vector<Value*> argStack;
+              VisitIDDValue(a, argStack);
             }
           }
         },
         // TODO think about jumping into call
         [&](Call *c) {
+          // each argument will have its own stack
           for(auto* a: c->Args()) {
-            VisitIDDValue(a, indexStack);
+            std::vector<Value*> argStack;
+            VisitIDDValue(a, argStack);
           }
         },
 	      [&](Let *i) {
+          // lets are pass through, so keep the same index stack
           VisitIDDValue(i->Value(), indexStack);
 	      },
         // TODO: should we follow stores to this instruction?
         [&](LoadVectorElement *lve) {
           VisitIDDValue(lve->From(), indexStack);
         },
+        // if this loads a compount type (e.g. nested arrays/structs), then the index stack 
+        // will still apply to the value loaded from
 	      [&](Load *l) { 
           VisitIDDValue(l->From(), indexStack);
         },
+        // the index stack of the value is independent
         [&](Unary *u) {
-          VisitIDDValue(u->Val(), indexStack);
+          std::vector<Value*> unaryStack;
+          VisitIDDValue(u->Val(), unaryStack);
         },
         [&](Var *v) {
           if (NeedsRewrite(v)) {
             RewriteRootVar(v, indexStack);
           } else if (v->Initializer() != nullptr) {
+            // if the var initializes a compound type, then the index stack still applies
+            // otherwise, this must be a symple type, in which case the index stack will still be empty
             VisitIDDValue(v->Initializer(), indexStack);
           }
         },
@@ -375,7 +390,7 @@ struct State {
           // we can safely ignore constants
           return;
         },
-        [&](FunctionParam *fp) {
+        [&](FunctionParam*) {
           // currently we are only visiting compute entry point, in which case function params are built-ins (e.g., invocation id)
           // TODO: for interprocedural analysis, need to trace calls of this function and follow input parameter chains
           return;
@@ -386,12 +401,24 @@ struct State {
       );
     }
 
+    void VisitCD(Instruction* inst) {
+      // Check if this control instruction
+      auto* ctrl = inst->Block()->Parent();
+      if (ctrl == nullptr) {
+        // no control instruction guarding this block
+        return;
+      } else {
+        std::cout << "control instruction: " << inst->FriendlyName() << "\n";
+      }
+    }
+
     // Visiting an access simply means visiting its index dependencies
     void VisitAccess(Access *a) {
       for (auto i : a->Indices()) {
         std::vector<Value*> indexStack;
         VisitIDDValue(i, indexStack);
       }
+      VisitCDInst(a->Block()->Parent());
     }
 
     // Traverse the compute entry point looking for accesses.
