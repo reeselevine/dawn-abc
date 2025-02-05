@@ -13,7 +13,7 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::core::ir::transform {
 
 // TODO:
-// handle arbitrary size struct fields
+// don't translate read-only buffers
 // handle control dependencies
 // handle interprocedural analysis
 
@@ -290,13 +290,19 @@ struct State {
     }
 
     // Rewrite the type of the binding point and then replace usages of the binding point using the updated type
-    void RewriteBindingPoint(Var* bp, std::vector<Value*> indexStack) {
+    void RewriteRootVar(Var* bp, std::vector<Value*> indexStack) {
       auto* oldPtr = bp->Result(0)->Type()->As<type::Pointer>();
       TINT_ASSERT(oldPtr);
-
       auto* newPtr = ty.ptr(oldPtr->AddressSpace(), RewriteType(oldPtr->UnwrapPtr(), indexStack), oldPtr->Access());
       bp->Result(0)->SetType(newPtr);
       Replace(bp->Result(0));
+    }
+
+    // Checks whether a variable type needs to be rewritten, either because it is a binding point or becuase it is a
+    // root block workgroup memory variable
+    bool NeedsRewrite(Var* var) {
+      auto* ptr = var->Result(0)->Type()->As<type::Pointer>();
+      return var->BindingPoint() || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
     }
 
     // Visit an instruction which is an index/data dependency of some access
@@ -318,13 +324,14 @@ struct State {
           VisitIDDValue(i->LHS(), indexStack);
           VisitIDDValue(i->RHS(), indexStack);
         },
-        // TODO
-        [&](Bitcast *bt) {
-        },
         [&](CoreBuiltinCall *cbc) {
           // we can short circuit if the value is already loaded atomically
           if (cbc->Func() == BuiltinFn::kAtomicLoad) {
             return;
+          } else {
+            for(auto* a: cbc->Args()) {
+              VisitIDDValue(a, indexStack);
+            }
           }
         },
         // TODO think about jumping into call
@@ -336,21 +343,20 @@ struct State {
 	      [&](Let *i) {
           VisitIDDValue(i->Value(), indexStack);
 	      },
-        // TODO
+        // TODO: should we follow stores to this instruction?
         [&](LoadVectorElement *lve) {
+          VisitIDDValue(lve->From(), indexStack);
         },
 	      [&](Load *l) { 
           VisitIDDValue(l->From(), indexStack);
         },
-        // TODO
         [&](Unary *u) {
+          VisitIDDValue(u->Val(), indexStack);
         },
-        // TODO
         [&](Var *v) {
-          if (v->BindingPoint()) {
-            // Binding points are where atomic translation might need to take place
-            RewriteBindingPoint(v, indexStack);
-          } else {
+          if (NeedsRewrite(v)) {
+            RewriteRootVar(v, indexStack);
+          } else if (v->Initializer() != nullptr) {
             VisitIDDValue(v->Initializer(), indexStack);
           }
         },
@@ -365,7 +371,7 @@ struct State {
           // we need to follow the chain of this index dependency
           VisitIDDInst(res->Instruction(), indexStack);
         },
-        [&](Constant* c) {
+        [&](Constant*) {
           // we can safely ignore constants
           return;
         },
