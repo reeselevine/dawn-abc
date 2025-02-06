@@ -92,12 +92,12 @@ struct State {
         // call a helper function which takes in a pointer to the source type and returns the target type
         [&](const type::Struct *st) {
           auto* helper = convert_helpers.GetOrAdd(st, [&] {
-            auto* func = b.Function(st);
+            auto* sourceStruct = sourcePtr->StoreType()->As<type::Struct>();
+            TINT_ASSERT(sourceStruct);
+            auto* func = b.Function("tint_convert_" + sourceStruct->Name().Name() + "_" + st->Name().Name(), st);
             auto* input = b.FunctionParam("tint_input", sourcePtr);
             func->SetParams({input});
             b.Append(func->Block(), [&] {
-              auto* sourceStruct = sourcePtr->StoreType()->As<type::Struct>();
-              TINT_ASSERT(sourceStruct);
               uint32_t index = 0;
               Vector<Value*, 4> args;
               for (auto* member : st->Members()) {
@@ -145,13 +145,13 @@ struct State {
           // call a helper which takes in a pointer to the store type and the value to store and stores it
           [&](const type::Struct *st) {
             auto* helper = convert_helpers.GetOrAdd(st, [&] {
-              auto* func = b.Function(ty.void_());
+              auto* fromStruct = from->Type()->As<type::Struct>();
+              TINT_ASSERT(fromStruct);
+              auto* func = b.Function("tint_convert_" + fromStruct->Name().Name() + "_" + st->Name().Name(), ty.void_());
               auto* fromInput = b.FunctionParam("tint_from", from->Type());
               auto* toInput = b.FunctionParam("tint_to", to->Type());
               func->SetParams({fromInput, toInput});
               b.Append(func->Block(), [&] {
-                auto* fromStruct = from->Type()->As<type::Struct>();
-                TINT_ASSERT(fromStruct);
                 uint32_t index = 0;
                 auto* fromStructVarRes = b.Var("tint_from_ptr", fromInput)->Result(0);
                 auto* fromStructPtr = fromStructVarRes->Type()->As<type::Pointer>();
