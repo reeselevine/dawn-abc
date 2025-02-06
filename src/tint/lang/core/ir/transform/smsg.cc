@@ -41,6 +41,8 @@ struct State {
     /// to an original type (for loads) or store an original type to a rewritten type.
     Hashmap<const type::Struct*, Function*, 4> convert_helpers{};
 
+    Hashset<const ControlInstruction*, 4> visited_ctrls{};
+
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
       return tint::Switch(type,
@@ -309,24 +311,40 @@ struct State {
     // Visit an instruction which is an index/data dependency of some access
     // Index stack maintains which members of a data structure are accessed, to determine
     // which members of a struct need to be loaded atomically
-    // TODO: Control dependencies, maybe don't fit in here?
     void VisitIDDInst(Instruction* inst, std::vector<Value*> indexStack) {
+
+      // We must also visit the control dependencies of this instruction.
+      // This is done before reverse-slicing the instruction, because if this is a load, it may be destroyed during the slicing
+      // Note: visiting control dependencies can also cause a load to be destroyed, but since (I think) a load is never
+      // the last instruction in a block, this currently works. A better solution might be to keep track of whether this load
+      // is destroyed and handle it explicitly. This may also need to be revisited if we decide to do forward references to
+      // private memory looking for stores.
+      // Note: Visiting control dependencies for every sliced instruction in a block also isn't very efficient. We could maintain
+      // a list of visited blocks or control instructions and only visit them once, but this would require more bookkeeping. A similar argument
+      // exists for instructions that are dependencies of multiple accesses. Currently encountering an atomic load will short-circuit,
+      // preventing multiple rewrites.
+      VisitCD(inst);
+
       tint::Switch(inst,
-        // we don't need to visit the indices of the access, because they will be handled by a separate visitor
-        // however, we do record the indices in the indexStack
+        // We record the indices in the index stack.
+        // After visiting the access, we visit its indices, as they are transitive index dependencies.
         [&](Access *a) {
           auto indices = a->Indices();
           for (auto i = indices.rbegin(); i != indices.rend(); i++) {
             indexStack.push_back(*i);
           }
-          VisitIDDValue(a->Object(), indexStack);
+          VisitSliceValue(a->Object(), indexStack);
+          for (auto* i : indices) {
+            std::vector<Value*> newIndexStack;
+            VisitSliceValue(i, indexStack);
+          }
         },
 	      [&](Binary *i) {
           // data dependencies will have their own stack
           std::vector<Value*> lhsStack;
-          VisitIDDValue(i->LHS(), lhsStack);
+          VisitSliceValue(i->LHS(), lhsStack);
           std::vector<Value*> rhsStack;
-          VisitIDDValue(i->RHS(), rhsStack);
+          VisitSliceValue(i->RHS(), rhsStack);
         },
         [&](CoreBuiltinCall *cbc) {
           // we can short circuit if the value is already loaded atomically
@@ -336,7 +354,7 @@ struct State {
             // each argument will have its own stack
             for(auto* a: cbc->Args()) {
               std::vector<Value*> argStack;
-              VisitIDDValue(a, argStack);
+              VisitSliceValue(a, argStack);
             }
           }
         },
@@ -345,26 +363,26 @@ struct State {
           // each argument will have its own stack
           for(auto* a: c->Args()) {
             std::vector<Value*> argStack;
-            VisitIDDValue(a, argStack);
+            VisitSliceValue(a, argStack);
           }
         },
 	      [&](Let *i) {
           // lets are pass through, so keep the same index stack
-          VisitIDDValue(i->Value(), indexStack);
+          VisitSliceValue(i->Value(), indexStack);
 	      },
         // TODO: should we follow stores to this instruction?
         [&](LoadVectorElement *lve) {
-          VisitIDDValue(lve->From(), indexStack);
+          VisitSliceValue(lve->From(), indexStack);
         },
         // if this loads a compount type (e.g. nested arrays/structs), then the index stack 
         // will still apply to the value loaded from
 	      [&](Load *l) { 
-          VisitIDDValue(l->From(), indexStack);
+          VisitSliceValue(l->From(), indexStack);
         },
         // the index stack of the value is independent
         [&](Unary *u) {
           std::vector<Value*> unaryStack;
-          VisitIDDValue(u->Val(), unaryStack);
+          VisitSliceValue(u->Val(), unaryStack);
         },
         [&](Var *v) {
           if (NeedsRewrite(v)) {
@@ -372,15 +390,39 @@ struct State {
           } else if (v->Initializer() != nullptr) {
             // if the var initializes a compound type, then the index stack still applies
             // otherwise, this must be a symple type, in which case the index stack will still be empty
-            VisitIDDValue(v->Initializer(), indexStack);
+            VisitSliceValue(v->Initializer(), indexStack);
           }
         },
         TINT_ICE_ON_NO_MATCH
 	    );
     }
 
-    // Visit index or data dependent values
-    void VisitIDDValue(Value* i, std::vector<Value*> indexStack) {
+    // visit control dependencies of an instruction
+    void VisitCD(Instruction* inst) {
+      auto* ctrl = inst->Block()->Parent();
+      if (ctrl == nullptr || visited_ctrls.Contains(ctrl)) {
+        // no control instruction guarding this block or already visited
+        return;
+      } else {
+        // if, loop, switch
+        visited_ctrls.Add(ctrl);
+        tint::Switch(ctrl,
+          [&](If *ifInst) {
+            std::vector<Value*> indexStack;
+            VisitSliceValue(ifInst->Condition(), indexStack);
+          },
+          [&](Loop *loop) {
+            Traverse(loop->Body(), [&](ExitLoop* exit) {
+              VisitCD(exit);
+            });
+          },
+          TINT_ICE_ON_NO_MATCH
+        );
+      }
+    }
+
+    // Visit control, index or data dependent values
+    void VisitSliceValue(Value* i, std::vector<Value*> indexStack) {
       tint::Switch(i,
         [&](InstructionResult* res) {
           // we need to follow the chain of this index dependency
@@ -401,31 +443,25 @@ struct State {
       );
     }
 
-    void VisitCD(Instruction* inst) {
-      // Check if this control instruction
-      auto* ctrl = inst->Block()->Parent();
-      if (ctrl == nullptr) {
-        // no control instruction guarding this block
-        return;
-      } else {
-        std::cout << "control instruction: " << inst->FriendlyName() << "\n";
-      }
-    }
-
     // Visiting an access simply means visiting its index dependencies
     void VisitAccess(Access *a) {
       for (auto i : a->Indices()) {
         std::vector<Value*> indexStack;
-        VisitIDDValue(i, indexStack);
+        VisitSliceValue(i, indexStack);
       }
-      VisitCDInst(a->Block()->Parent());
+      VisitCD(a);
     }
 
-    // Traverse the compute entry point looking for accesses.
+    // Traverse the compute entry point looking for stores, then visit the access the store depends on
+    // If a tree falls in the woods and no one is around to hear it, does it make a sound?
     // TODO: Interprocedural analysis
     void VisitComputeEntryPoint(Function* f) {
-      Traverse(f->Block(), [&](Access* a) {
-        VisitAccess(a);
+      Traverse(f->Block(), [&](Store* s) {
+        auto* instRes = s->To()->As<InstructionResult>();
+        TINT_ASSERT(instRes);
+        auto* access = instRes->Instruction()->As<Access>();
+        TINT_ASSERT(access);
+        VisitAccess(access);
       });
     }
 
