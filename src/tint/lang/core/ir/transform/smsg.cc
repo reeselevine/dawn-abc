@@ -41,6 +41,8 @@ struct State {
     /// to an original type (for loads) or store an original type to a rewritten type.
     Hashmap<const type::Struct*, Function*, 4> convert_helpers{};
 
+    // The set of visited control instructions. If a control has been visited, that means it already
+    // is in the slice of some store access chain, and we should not visit it again.
     Hashset<const ControlInstruction*, 4> visited_ctrls{};
 
     // Replace type used in instruction result 
@@ -233,7 +235,7 @@ struct State {
       return tint::Switch(type,
         [&](const type::Atomic*) {
           // atomic types are already in the correct format
-          // TODO: is this necessary due to short-circuit in VisitIDDInst?
+          // TODO: is this necessary due to short-circuit in VisitIDD?
           return type;
         },
         // If we have reached an i32/u32 we need to wrap it in an atomic type
@@ -301,8 +303,8 @@ struct State {
       Replace(bp->Result(0));
     }
 
-    // Checks whether a variable type needs to be rewritten, either because it is a binding point or because it is a
-    // root block workgroup memory variable
+    // Checks whether a variable type needs to be rewritten, either because it is a read/write binding point or because it is a
+    // root block workgroup memory variable.
     bool NeedsRewrite(Var* var) {
       auto* ptr = var->Result(0)->Type()->As<type::Pointer>();
       return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
@@ -311,7 +313,7 @@ struct State {
     // Visit an instruction which is an index/data dependency of some access
     // Index stack maintains which members of a data structure are accessed, to determine
     // which members of a struct need to be loaded atomically
-    void VisitIDDInst(Instruction* inst, std::vector<Value*> indexStack) {
+    void VisitIDD(Instruction* inst, std::vector<Value*> indexStack) {
 
       // We must also visit the control dependencies of this instruction.
       // This is done before reverse-slicing the instruction, because if this is a load, it may be destroyed during the slicing
@@ -319,25 +321,17 @@ struct State {
       // the last instruction in a block, this currently works. A better solution might be to keep track of whether this load
       // is destroyed and handle it explicitly. This may also need to be revisited if we decide to do forward references to
       // private memory looking for stores.
-      // Note: Visiting control dependencies for every sliced instruction in a block also isn't very efficient. We could maintain
-      // a list of visited blocks or control instructions and only visit them once, but this would require more bookkeeping. A similar argument
-      // exists for instructions that are dependencies of multiple accesses. Currently encountering an atomic load will short-circuit,
-      // preventing multiple rewrites.
       VisitCD(inst);
 
       tint::Switch(inst,
         // We record the indices in the index stack.
-        // After visiting the access, we visit its indices, as they are transitive index dependencies.
+        // We don't need to visit its indices, as they will be handled by visiting this access directly.
         [&](Access *a) {
           auto indices = a->Indices();
           for (auto i = indices.rbegin(); i != indices.rend(); i++) {
             indexStack.push_back(*i);
           }
           VisitSliceValue(a->Object(), indexStack);
-          for (auto* i : indices) {
-            std::vector<Value*> newIndexStack;
-            VisitSliceValue(i, indexStack);
-          }
         },
 	      [&](Binary *i) {
           // data dependencies will have their own stack
@@ -358,7 +352,8 @@ struct State {
             }
           }
         },
-        // TODO think about jumping into call
+        // TODO think about jumping into call. As it stands, we assume an argument affects the output of the function,
+        // in which case it is considered a dependency.
         [&](Call *c) {
           // each argument will have its own stack
           for(auto* a: c->Args()) {
@@ -374,8 +369,8 @@ struct State {
         [&](LoadVectorElement *lve) {
           VisitSliceValue(lve->From(), indexStack);
         },
-        // if this loads a compount type (e.g. nested arrays/structs), then the index stack 
-        // will still apply to the value loaded from
+        // if this loads a compound type (e.g. nested arrays/structs), then the index stack 
+        // will still apply to the value loaded from. Otherwise, the index stack will be empty.
 	      [&](Load *l) { 
           VisitSliceValue(l->From(), indexStack);
         },
@@ -407,10 +402,22 @@ struct State {
         // if, loop, switch
         visited_ctrls.Add(ctrl);
         tint::Switch(ctrl,
+          // if/switch blocks are guarded by their condition.
           [&](If *ifInst) {
             std::vector<Value*> indexStack;
             VisitSliceValue(ifInst->Condition(), indexStack);
           },
+          [&](Switch *sw) {
+            std::vector<Value*> indexStack;
+            VisitSliceValue(sw->Condition(), indexStack);
+          },
+          // A loop is split into an initializer, a body, and a continuing block.
+          // The only place the loop can be exited is from the loop body, and only by calling
+          // an exit_loop instruction inside a conditional. Therefore, the instructions/accesses
+          // involved in this control dependency are the transitive instructions referenced by 
+          // conditionals to exit the loop. Note that there may be multiple exit_loop instructions,
+          // due to tint adding protections against infinite loops. Only one of these really matters,
+          // and it's probably the last one by convention, but we traverse them all for safety.
           [&](Loop *loop) {
             Traverse(loop->Body(), [&](ExitLoop* exit) {
               VisitCD(exit);
@@ -426,7 +433,7 @@ struct State {
       tint::Switch(i,
         [&](InstructionResult* res) {
           // we need to follow the chain of this index dependency
-          VisitIDDInst(res->Instruction(), indexStack);
+          VisitIDD(res->Instruction(), indexStack);
         },
         [&](Constant*) {
           // we can safely ignore constants
@@ -443,25 +450,19 @@ struct State {
       );
     }
 
-    // Visiting an access simply means visiting its index dependencies
-    void VisitAccess(Access *a) {
-      for (auto i : a->Indices()) {
-        std::vector<Value*> indexStack;
-        VisitSliceValue(i, indexStack);
-      }
-      VisitCD(a);
-    }
-
-    // Traverse the compute entry point looking for stores, then visit the access the store depends on
-    // If a tree falls in the woods and no one is around to hear it, does it make a sound?
+    // Traverse the compute entry point looking for accesses, then visit them
     // TODO: Interprocedural analysis
+    // TODO: If an access is part of the conditional calculation for a for-loop body, then right now it is considered
+    // a control dependency of itself and is made atomic. However, this isn't really necessary, it's an artifact of how
+    // the IR is structured. It seems like an access can be ignored if it occurs before the last exit-loop instruction, 
+    // but this is not implemented yet.
     void VisitComputeEntryPoint(Function* f) {
-      Traverse(f->Block(), [&](Store* s) {
-        auto* instRes = s->To()->As<InstructionResult>();
-        TINT_ASSERT(instRes);
-        auto* access = instRes->Instruction()->As<Access>();
-        TINT_ASSERT(access);
-        VisitAccess(access);
+      Traverse(f->Block(), [&](Access* access) {
+        for (auto idx : access->Indices()) {
+          std::vector<Value*> indexStack;
+          VisitSliceValue(idx, indexStack);
+        }
+        VisitCD(access);
       });
     }
 
