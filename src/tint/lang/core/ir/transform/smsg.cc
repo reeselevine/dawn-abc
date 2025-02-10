@@ -196,7 +196,7 @@ struct State {
     }
 
     // Handle usages of an instruction result given new type
-    void Replace(InstructionResult* res) {
+    void Replace(Value* res) {
       res->ForEachUseUnsorted([&](Usage use) {
         auto* inst = use.instruction;
         tint::Switch(inst,
@@ -224,6 +224,18 @@ struct State {
             auto *innerRes = let->Result(0);
             innerRes->SetType(res->Type());
             Replace(innerRes);
+          },
+          [&](UserCall* uc) {
+            // recurse into a user call and replace the type of this value
+            const VectorRef<FunctionParam*> fnParams = uc->Target()->Params();
+            size_t i = 0;
+            for (auto* a : uc->Args()) {
+              if (a == res) {
+                auto* param = fnParams[i];
+                param->SetType(res->Type());
+                Replace(param);
+              }
+            }
           },
           TINT_ICE_ON_NO_MATCH
         );
@@ -313,7 +325,9 @@ struct State {
     // Visit an instruction which is an index/data dependency of some access
     // Index stack maintains which members of a data structure are accessed, to determine
     // which members of a struct need to be loaded atomically
-    void VisitIDD(Instruction* inst, std::vector<Value*> indexStack) {
+    // Function args stack maintains a stack of argument values passed into the function, so that values can be visited
+    // based on how they are used in the function
+    void VisitIDD(Instruction* inst, std::vector<Value*> indexStack, std::vector<tint::Slice<Value* const>> fnArgsStack) {
 
       // We must also visit the control dependencies of this instruction.
       // This is done before reverse-slicing the instruction, because if this is a load, it may be destroyed during the slicing
@@ -321,7 +335,7 @@ struct State {
       // the last instruction in a block, this currently works. A better solution might be to keep track of whether this load
       // is destroyed and handle it explicitly. This may also need to be revisited if we decide to do forward references to
       // private memory looking for stores.
-      VisitCD(inst);
+      VisitCD(inst, fnArgsStack);
 
       tint::Switch(inst,
         // We record the indices in the index stack.
@@ -331,14 +345,14 @@ struct State {
           for (auto i = indices.rbegin(); i != indices.rend(); i++) {
             indexStack.push_back(*i);
           }
-          VisitSliceValue(a->Object(), indexStack);
+          VisitSliceValue(a->Object(), indexStack, fnArgsStack);
         },
 	      [&](Binary *i) {
           // data dependencies will have their own stack
           std::vector<Value*> lhsStack;
-          VisitSliceValue(i->LHS(), lhsStack);
+          VisitSliceValue(i->LHS(), lhsStack, fnArgsStack);
           std::vector<Value*> rhsStack;
-          VisitSliceValue(i->RHS(), rhsStack);
+          VisitSliceValue(i->RHS(), rhsStack, fnArgsStack);
         },
         [&](CoreBuiltinCall *cbc) {
           // we can short circuit if the value is already loaded atomically
@@ -347,37 +361,46 @@ struct State {
           } else {
             // each argument will have its own stack
             for(auto* a: cbc->Args()) {
-              std::vector<Value*> argStack;
-              VisitSliceValue(a, argStack);
+              std::vector<Value*> fnIndexStack;
+              VisitSliceValue(a, fnIndexStack, fnArgsStack);
             }
           }
         },
-        // TODO think about jumping into call. As it stands, we assume an argument affects the output of the function,
-        // in which case it is considered a dependency.
+        // For a user call, we add the arguments to the function argument stack and visit all return statements
+        // within the function, slicing backwards from there.
+        [&](UserCall *uc) {
+          Traverse(uc->Target()->Block(), [&](Return* ret) {
+            std::vector<Value*> fnIndexStack;
+            std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
+            newArgsStack.push_back(uc->Args());
+            VisitSliceValue(ret->Value(), fnIndexStack, newArgsStack);
+          });
+        },
+        // All other types of calls we treat as opaque
         [&](Call *c) {
           // each argument will have its own stack
           for(auto* a: c->Args()) {
-            std::vector<Value*> argStack;
-            VisitSliceValue(a, argStack);
+            std::vector<Value*> fnIndexStack;
+            VisitSliceValue(a, fnIndexStack, fnArgsStack);
           }
         },
 	      [&](Let *i) {
           // lets are pass through, so keep the same index stack
-          VisitSliceValue(i->Value(), indexStack);
+          VisitSliceValue(i->Value(), indexStack, fnArgsStack);
 	      },
         // TODO: should we follow stores to this instruction?
         [&](LoadVectorElement *lve) {
-          VisitSliceValue(lve->From(), indexStack);
+          VisitSliceValue(lve->From(), indexStack, fnArgsStack);
         },
         // if this loads a compound type (e.g. nested arrays/structs), then the index stack 
         // will still apply to the value loaded from. Otherwise, the index stack will be empty.
 	      [&](Load *l) { 
-          VisitSliceValue(l->From(), indexStack);
+          VisitSliceValue(l->From(), indexStack, fnArgsStack);
         },
         // the index stack of the value is independent
         [&](Unary *u) {
           std::vector<Value*> unaryStack;
-          VisitSliceValue(u->Val(), unaryStack);
+          VisitSliceValue(u->Val(), unaryStack, fnArgsStack);
         },
         [&](Var *v) {
           if (NeedsRewrite(v)) {
@@ -385,7 +408,21 @@ struct State {
           } else if (v->Initializer() != nullptr) {
             // if the var initializes a compound type, then the index stack still applies
             // otherwise, this must be a symple type, in which case the index stack will still be empty
-            VisitSliceValue(v->Initializer(), indexStack);
+            VisitSliceValue(v->Initializer(), indexStack, fnArgsStack);
+          } else {
+            // This may be a declaration of a private/function scoped variable. If this variable is stored
+            // to directly elsewhere in the program, then we need to visit the control/data depedencies of the store.
+            // Note that if this is a compound variable and it is stored to partially, then it will be accessed
+            // prior to the store, and will already be visited by the root traversal.
+            v->Result(0)->ForEachUseUnsorted([&](Usage use) {
+              tint::Switch(use.instruction,
+                [&](Store* s) {
+                  VisitCD(s, fnArgsStack);
+                  std::vector<Value*> storeIndexStack;
+                  VisitSliceValue(s->From(), storeIndexStack, fnArgsStack);
+                }
+              );
+            });
           }
         },
         TINT_ICE_ON_NO_MATCH
@@ -393,7 +430,7 @@ struct State {
     }
 
     // visit control dependencies of an instruction
-    void VisitCD(Instruction* inst) {
+    void VisitCD(Instruction* inst, std::vector<tint::Slice<Value* const>> fnArgsStack) {
       auto* ctrl = inst->Block()->Parent();
       if (ctrl == nullptr || visited_ctrls.Contains(ctrl)) {
         // no control instruction guarding this block or already visited
@@ -405,11 +442,11 @@ struct State {
           // if/switch blocks are guarded by their condition.
           [&](If *ifInst) {
             std::vector<Value*> indexStack;
-            VisitSliceValue(ifInst->Condition(), indexStack);
+            VisitSliceValue(ifInst->Condition(), indexStack, fnArgsStack);
           },
           [&](Switch *sw) {
             std::vector<Value*> indexStack;
-            VisitSliceValue(sw->Condition(), indexStack);
+            VisitSliceValue(sw->Condition(), indexStack, fnArgsStack);
           },
           // A loop is split into an initializer, a body, and a continuing block.
           // The only place the loop can be exited is from the loop body, and only by calling
@@ -420,7 +457,7 @@ struct State {
           // and it's probably the last one by convention, but we traverse them all for safety.
           [&](Loop *loop) {
             Traverse(loop->Body(), [&](ExitLoop* exit) {
-              VisitCD(exit);
+              VisitCD(exit, fnArgsStack);
             });
           },
           TINT_ICE_ON_NO_MATCH
@@ -429,19 +466,28 @@ struct State {
     }
 
     // Visit control, index or data dependent values
-    void VisitSliceValue(Value* i, std::vector<Value*> indexStack) {
+    void VisitSliceValue(Value* i, std::vector<Value*> indexStack, std::vector<tint::Slice<Value* const>> fnArgsStack) {
       tint::Switch(i,
         [&](InstructionResult* res) {
           // we need to follow the chain of this index dependency
-          VisitIDD(res->Instruction(), indexStack);
+          VisitIDD(res->Instruction(), indexStack, fnArgsStack);
         },
         [&](Constant*) {
           // we can safely ignore constants
           return;
         },
-        [&](FunctionParam*) {
-          // currently we are only visiting compute entry point, in which case function params are built-ins (e.g., invocation id)
-          // TODO: for interprocedural analysis, need to trace calls of this function and follow input parameter chains
+        [&](FunctionParam* fp) {
+          // If this is a compute entry point, the only function parameters are built-ins (e.g., invocation id)
+          if (fp->Function()->Stage() == Function::PipelineStage::kCompute) {
+            return;
+          // Otherwise we map the parameter to the value its called from during this traversal, and continue
+          // slicing from that value.
+          } else {
+            std::vector<tint::Slice<Value* const>> newArgsStack(fnArgsStack);
+            tint::Slice<Value* const> curArgs = newArgsStack.back();
+            newArgsStack.pop_back();
+            VisitSliceValue(curArgs[fp->Index()], indexStack, newArgsStack);
+          }
           return;
         },
         [&](Default) {
@@ -450,19 +496,23 @@ struct State {
       );
     }
 
-    // Traverse the compute entry point looking for accesses, then visit them
-    // TODO: Interprocedural analysis
+    // Traverse a function looking for accesses, as well as recursively traversing any functions called from this one.
     // TODO: If an access is part of the conditional calculation for a for-loop body, then right now it is considered
     // a control dependency of itself and is made atomic. However, this isn't really necessary, it's an artifact of how
     // the IR is structured. It seems like an access can be ignored if it occurs before the last exit-loop instruction, 
     // but this is not implemented yet.
-    void VisitComputeEntryPoint(Function* f) {
+    void VisitFunction(Function* f, std::vector<tint::Slice<Value* const>> fnArgsStack) {
       Traverse(f->Block(), [&](Access* access) {
         for (auto idx : access->Indices()) {
           std::vector<Value*> indexStack;
-          VisitSliceValue(idx, indexStack);
+          VisitSliceValue(idx, indexStack, fnArgsStack); 
         }
-        VisitCD(access);
+        VisitCD(access, fnArgsStack); 
+      });
+      Traverse(f->Block(), [&](UserCall* uc) {
+        std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
+        newArgsStack.push_back(uc->Args());
+        VisitFunction(uc->Target(), newArgsStack);
       });
     }
 
@@ -480,7 +530,9 @@ struct State {
             TINT_ICE() << "multiple compute entry points found\n";
           }
           entryPointFound = true;
-          VisitComputeEntryPoint(f);
+          std::vector<Slice<Value* const>> fnArgsStack;
+          fnArgsStack.push_back(Slice<Value* const>());
+          VisitFunction(f, fnArgsStack);
         }
       }
 
