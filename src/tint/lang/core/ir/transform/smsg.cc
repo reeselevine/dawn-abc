@@ -13,6 +13,8 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::core::ir::transform {
 
 // TODO:
+// right now we end up doing unnecessary analysis on code added by the pass. Consider tracking added functions/statements
+// and avoid analyzing them.
 // optimization: dynamically determine if buffer is read-only
 // optimization: smarter handling of loops
 
@@ -48,6 +50,9 @@ struct State {
     // to where the function is called from.
     Hashmap<Function*, bool, 4> void_function_stores{};
 
+    // To avoid infinite recursion if a variable is stored back to itself, we maintain a set of variables which
+    // we have already visited.
+    Hashset<const Var*, 4> visited_vars{};
 
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
@@ -338,8 +343,9 @@ struct State {
             VisitSliceValue(s->From(), storeIndexStack, fnArgsStack);
           },
           [&](StoreVectorElement* sve) {
-            // Check if this stores to the same vector element that we were slicing back
-            if (sve->Index() == indexStack.back()) {
+            // Check if this stores to the same vector element that we were slicing back, or any element if the vector is loaded
+            // entirely
+            if (indexStack.empty() || sve->Index() == indexStack.back()) {
               std::vector<Value*> newIndexStack;
               VisitSliceValue(sve->Value(), newIndexStack, fnArgsStack);
               VisitCD(sve, fnArgsStack);
@@ -451,11 +457,12 @@ struct State {
             // if the var initializes a compound type, then the index stack still applies
             // otherwise, this must be a symple type, in which case the index stack will still be empty
             VisitSliceValue(v->Initializer(), indexStack, fnArgsStack);
-          } else {
+          } else if (!visited_vars.Contains(v)) {
             // This may be a declaration of a private/function scoped variable. If this variable is stored
             // to directly elsewhere in the program, then we need to visit the control/data depedencies of the store.
             // Note that if this is a compound variable and it is stored to partially, then it will be accessed
             // prior to the store, and will already be visited by the root traversal.
+            visited_vars.Add(v);
             VisitForwardReference(v->Result(0), indexStack, fnArgsStack);
           }
         },
@@ -508,6 +515,10 @@ struct State {
         },
         [&](Constant*) {
           // we can safely ignore constants
+          return;
+        },
+        [&](BlockParam*) {
+          // we currently ignore block parameters. TODO: Do we need to handle them in some way?
           return;
         },
         [&](FunctionParam* fp) {
