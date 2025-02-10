@@ -13,10 +13,8 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::core::ir::transform {
 
 // TODO:
-// handle control dependencies
-// handle interprocedural analysis
-// handle stores/loads to local memory, vector elements
 // optimization: dynamically determine if buffer is read-only
+// optimization: smarter handling of loops
 
 namespace {
 
@@ -42,8 +40,14 @@ struct State {
     Hashmap<const type::Struct*, Function*, 4> convert_helpers{};
 
     // The set of visited control instructions. If a control has been visited, that means it already
-    // is in the slice of some store access chain, and we should not visit it again.
+    // is in the slice of some access chain, and we should not visit it again.
     Hashset<const ControlInstruction*, 4> visited_ctrls{};
+
+    // Maps functions to whether or not they store to some pointer, so that control dependencies of calls to these
+    // functions can be analyzed. There is currently no other way to match stores in void functions
+    // to where the function is called from.
+    Hashmap<Function*, bool, 4> void_function_stores{};
+
 
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
@@ -235,6 +239,7 @@ struct State {
                 param->SetType(res->Type());
                 Replace(param);
               }
+              i++;
             }
           },
           TINT_ICE_ON_NO_MATCH
@@ -322,6 +327,41 @@ struct State {
       return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
     }
 
+    // Follow a private/function variable forwards, searching for stores (data dependencies) in this function
+    // or in function calls recursively.
+    void VisitForwardReference(Value* value, std::vector<Value*> indexStack, std::vector<tint::Slice<Value* const>> fnArgsStack) {
+      value->ForEachUseUnsorted([&](Usage use) {
+        tint::Switch(use.instruction,
+          [&](Store* s) {
+            VisitCD(s, fnArgsStack);
+            std::vector<Value*> storeIndexStack;
+            VisitSliceValue(s->From(), storeIndexStack, fnArgsStack);
+          },
+          [&](StoreVectorElement* sve) {
+            // Check if this stores to the same vector element that we were slicing back
+            if (sve->Index() == indexStack.back()) {
+              std::vector<Value*> newIndexStack;
+              VisitSliceValue(sve->Value(), newIndexStack, fnArgsStack);
+              VisitCD(sve, fnArgsStack);
+            }
+          },
+          [&](UserCall* uc) {
+            const VectorRef<FunctionParam*> fnParams = uc->Target()->Params();
+            size_t i = 0;
+            for (auto* a : uc->Args()) {
+              if (a == value) {
+                std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
+                newArgsStack.push_back(uc->Args());
+                VisitForwardReference(fnParams[i], indexStack, newArgsStack);
+              }
+              i++;
+            }
+          }
+          // other types of usages we don't need to track
+        );
+      });
+    }
+
     // Visit an instruction which is an index/data dependency of some access
     // Index stack maintains which members of a data structure are accessed, to determine
     // which members of a struct need to be loaded atomically
@@ -388,9 +428,11 @@ struct State {
           // lets are pass through, so keep the same index stack
           VisitSliceValue(i->Value(), indexStack, fnArgsStack);
 	      },
-        // TODO: should we follow stores to this instruction?
         [&](LoadVectorElement *lve) {
-          VisitSliceValue(lve->From(), indexStack, fnArgsStack);
+          // We keep track of the vector element loaded in the index stack, so that it can be traced forward later on
+          std::vector<Value*> vectorElement;
+          vectorElement.push_back(lve->Index());
+          VisitSliceValue(lve->From(), vectorElement, fnArgsStack);
         },
         // if this loads a compound type (e.g. nested arrays/structs), then the index stack 
         // will still apply to the value loaded from. Otherwise, the index stack will be empty.
@@ -414,15 +456,7 @@ struct State {
             // to directly elsewhere in the program, then we need to visit the control/data depedencies of the store.
             // Note that if this is a compound variable and it is stored to partially, then it will be accessed
             // prior to the store, and will already be visited by the root traversal.
-            v->Result(0)->ForEachUseUnsorted([&](Usage use) {
-              tint::Switch(use.instruction,
-                [&](Store* s) {
-                  VisitCD(s, fnArgsStack);
-                  std::vector<Value*> storeIndexStack;
-                  VisitSliceValue(s->From(), storeIndexStack, fnArgsStack);
-                }
-              );
-            });
+            VisitForwardReference(v->Result(0), indexStack, fnArgsStack);
           }
         },
         TINT_ICE_ON_NO_MATCH
@@ -502,6 +536,13 @@ struct State {
     // the IR is structured. It seems like an access can be ignored if it occurs before the last exit-loop instruction, 
     // but this is not implemented yet.
     void VisitFunction(Function* f, std::vector<tint::Slice<Value* const>> fnArgsStack) {
+      if (!void_function_stores.Contains(f)) {
+        Traverse(f->Block(), [&](Store*) {
+          void_function_stores.Add(f, true);
+        });
+        // adds to the same key do not overwrite previous adds
+        void_function_stores.Add(f, false);
+      }
       Traverse(f->Block(), [&](Access* access) {
         for (auto idx : access->Indices()) {
           std::vector<Value*> indexStack;
@@ -513,6 +554,10 @@ struct State {
         std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
         newArgsStack.push_back(uc->Args());
         VisitFunction(uc->Target(), newArgsStack);
+        // The function stores, so we need to handle its control dependencies in this function
+        if (void_function_stores.Get(uc->Target())) {
+          VisitCD(uc, fnArgsStack);
+        }
       });
     }
 
