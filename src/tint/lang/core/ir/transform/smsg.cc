@@ -102,6 +102,10 @@ struct State {
           // wrap the u32 in an atomic type
           return ty.Get<type::Atomic>(u32);
         },
+        [&](const type::Atomic* at) {
+          // If the type is already atomic just return it
+          return at;
+        },
         TINT_ICE_ON_NO_MATCH
       );
     }
@@ -267,8 +271,8 @@ struct State {
               }
               i++;
             }
-          },
-          TINT_ICE_ON_NO_MATCH
+          }
+          // other types of usages we don't need to replace
         );
       });
     }
