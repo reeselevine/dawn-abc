@@ -334,6 +334,7 @@ ResultOrError<d3d::CompiledShader> ShaderModule::Compile(
     }
     req.hlsl.substituteOverrideConfig = std::move(substituteOverrideConfig);
 
+    req.hlsl.tintOptions.disable_smsg = !device->IsSMSGEnabled();
     req.hlsl.tintOptions.disable_robustness = !device->IsRobustnessEnabled();
     req.hlsl.tintOptions.disable_workgroup_init =
         device->IsToggleEnabled(Toggle::DisableWorkgroupInit);

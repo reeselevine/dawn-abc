@@ -43,6 +43,7 @@
 #include "src/tint/lang/core/ir/transform/remove_continue_in_switch.h"
 #include "src/tint/lang/core/ir/transform/remove_terminator_args.h"
 #include "src/tint/lang/core/ir/transform/rename_conflicts.h"
+#include "src/tint/lang/core/ir/transform/smsg.h"
 #include "src/tint/lang/core/ir/transform/robustness.h"
 #include "src/tint/lang/core/ir/transform/value_to_let.h"
 #include "src/tint/lang/core/ir/transform/vectorize_scalar_matrix_constructors.h"
@@ -83,6 +84,13 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
 
     if (!options.disable_robustness) {
         RUN_TRANSFORM(core::ir::transform::PreventInfiniteLoops, module);
+    }
+
+    if (!options.disable_smsg) {
+      core::ir::transform::SMSGConfig config{};
+      // D3D backends specify behavior of out-of-bounds accesses to buffers bound to root descriptor table. 
+      config.rewrite_storage = false;
+      RUN_TRANSFORM(core::ir::transform::SMSG, module, config);
     }
 
     {

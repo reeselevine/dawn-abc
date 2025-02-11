@@ -355,6 +355,7 @@ class DeviceBase : public ErrorSink, public RefCountedWithExternalCount<RefCount
     bool IsToggleEnabled(Toggle toggle) const;
     const TogglesState& GetTogglesState() const;
     bool IsValidationEnabled() const;
+    bool IsSMSGEnabled() const;
     bool IsRobustnessEnabled() const;
     bool IsCompatibilityMode() const;
     bool IsImmediateErrorHandlingEnabled() const;

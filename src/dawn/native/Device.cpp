@@ -1876,6 +1876,10 @@ bool DeviceBase::IsValidationEnabled() const {
     return !IsToggleEnabled(Toggle::SkipValidation);
 }
 
+bool DeviceBase::IsSMSGEnabled() const {
+  return !IsToggleEnabled(Toggle::DisableSMSG);
+}
+
 bool DeviceBase::IsRobustnessEnabled() const {
     return !IsToggleEnabled(Toggle::DisableRobustness);
 }

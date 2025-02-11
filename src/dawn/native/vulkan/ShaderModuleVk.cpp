@@ -346,6 +346,7 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     req.tintOptions.statically_paired_texture_binding_points =
         std::move(statically_paired_texture_binding_points);
     req.tintOptions.clamp_frag_depth = clampFragDepth;
+    req.tintOptions.disable_smsg = !GetDevice()->IsSMSGEnabled();
     req.tintOptions.disable_robustness = !GetDevice()->IsRobustnessEnabled();
     req.tintOptions.emit_vertex_point_size = emitPointSize;
 
@@ -367,6 +368,8 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     // transform as unsized arrays can only be declared on storage address space.
     req.tintOptions.disable_runtime_sized_array_index_clamping =
         GetDevice()->IsToggleEnabled(Toggle::VulkanUseBufferRobustAccess2);
+    // We can also disable rewriting storage memory types if robustness is enabled.
+    req.tintOptions.disable_smsg_rewrite_storage = GetDevice()->IsToggleEnabled(Toggle::VulkanUseBufferRobustAccess2);
     req.tintOptions.polyfill_dot_4x8_packed =
         GetDevice()->IsToggleEnabled(Toggle::PolyFillPacked4x8DotProduct);
     req.tintOptions.disable_polyfill_integer_div_mod =

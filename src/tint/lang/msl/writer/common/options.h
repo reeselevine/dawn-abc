@@ -143,6 +143,9 @@ struct Options {
     /// Set to `true` to strip all user-declared identifiers from the module.
     bool strip_all_names = false;
 
+    /// Set to `true` to disable translation of indirect memory access dependencies to atomic for memory safety. 
+    bool disable_smsg = false;
+
     /// Set to `true` to disable software robustness that prevents out-of-bounds accesses.
     bool disable_robustness = false;
 

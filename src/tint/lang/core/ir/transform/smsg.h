@@ -15,10 +15,18 @@ class Module;
 
 namespace tint::core::ir::transform {
 
+struct SMSGConfig {
+
+  // Should storage buffer bindings types be rewritten?
+  bool rewrite_storage = true;
+
+  TINT_REFLECT(SMSGConfig, rewrite_storage);
+};
+
 /// SMSG is a transform that prevents out-of-bounds memory accesses.
 /// @param module the module to transform
 /// @returns success or failure
-Result<SuccessType> SMSG(Module& module);
+Result<SuccessType> SMSG(Module& module, const SMSGConfig& config);
 
 }  // namespace tint::core::ir::transform
 

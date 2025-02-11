@@ -22,6 +22,10 @@ namespace {
 
 /// PIMPL state for the transform.
 struct State {
+
+    /// The SMSG config.
+    const SMSGConfig& config;
+
     /// The IR module.
     Module& ir;
 
@@ -325,11 +329,11 @@ struct State {
       Replace(bp->Result(0));
     }
 
-    // Checks whether a variable type needs to be rewritten, either because it is a read/write binding point or because it is a
-    // root block workgroup memory variable.
+    // Checks whether a variable type needs to be rewritten, either because it is a read/write binding point and rewriting
+    // storage buffers is enabled or because it is a root block workgroup memory variable.
     bool NeedsRewrite(Var* var) {
       auto* ptr = var->Result(0)->Type()->As<type::Pointer>();
-      return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
+      return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite && config.rewrite_storage) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
     }
 
     // Follow a private/function variable forwards, searching for stores (data dependencies) in this function
@@ -379,8 +383,7 @@ struct State {
       // This is done before reverse-slicing the instruction, because if this is a load, it may be destroyed during the slicing
       // Note: visiting control dependencies can also cause a load to be destroyed, but since (I think) a load is never
       // the last instruction in a block, this currently works. A better solution might be to keep track of whether this load
-      // is destroyed and handle it explicitly. This may also need to be revisited if we decide to do forward references to
-      // private memory looking for stores.
+      // is destroyed and handle it explicitly. 
       VisitCD(inst, fnArgsStack);
 
       tint::Switch(inst,
@@ -565,7 +568,7 @@ struct State {
         std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
         newArgsStack.push_back(uc->Args());
         VisitFunction(uc->Target(), newArgsStack);
-        // The function stores, so we need to handle its control dependencies in this function
+        // The called function stores, so we need to handle its control dependencies in this function
         if (void_function_stores.Get(uc->Target())) {
           VisitCD(uc, fnArgsStack);
         }
@@ -602,13 +605,13 @@ struct State {
 
 }  // namespace
 
-Result<SuccessType> SMSG(Module& ir) {
+Result<SuccessType> SMSG(Module& ir, const SMSGConfig& config) {
     auto result = ValidateAndDumpIfNeeded(ir, "core.SMSG");
     if (result != Success) {
         return result;
     }
 
-    return State{ir}.Process();
+    return State{config, ir}.Process();
 }
 
 } // namespace tint::core::ir::transform

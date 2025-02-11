@@ -79,7 +79,11 @@ Result<RaiseResult> Raise(core::ir::Module& module, const Options& options) {
     if (!options.disable_robustness) {
         RUN_TRANSFORM(core::ir::transform::PreventInfiniteLoops, module);
     }
-    RUN_TRANSFORM(core::ir::transform::SMSG, module);
+
+    if (!options.disable_smsg) {
+      core::ir::transform::SMSGConfig config{};
+      RUN_TRANSFORM(core::ir::transform::SMSG, module, config);
+    }
 
     {
         core::ir::transform::BinaryPolyfillConfig binary_polyfills{};

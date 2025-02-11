@@ -284,6 +284,7 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
         req.tintOptions.strip_all_names = !req.disableSymbolRenaming;
         req.tintOptions.remapped_entry_point_name = kRemappedEntryPointName;
     }
+    req.tintOptions.disable_smsg = !device->IsSMSGEnabled();
     req.tintOptions.disable_robustness = !device->IsRobustnessEnabled();
     req.tintOptions.buffer_size_ubo_index = kBufferLengthBufferSlot;
     req.tintOptions.fixed_sample_mask = sampleMask;
