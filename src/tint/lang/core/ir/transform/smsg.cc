@@ -58,6 +58,21 @@ struct State {
     // we have already visited.
     Hashset<const Var*, 4> visited_vars{};
 
+    // The entry point if this is a compute shader
+    std::string entry_point = "";
+
+    // The number of storage bufer rewrites needed. Note that rewriting an array counts as one rewrite
+    uint storage_rewrites = 0;
+
+    // The number of workgroup buffer rewrites needed.
+    uint workgroup_rewrites = 0;
+
+    // The number of loads converted. Note these are _static_ loads, so loads in a loop will end up causing more runtime loads.
+    uint atomic_loads = 0;
+
+    // The number of stores converted.
+    uint atomic_stores = 0;
+
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
       return tint::Switch(type,
@@ -102,6 +117,7 @@ struct State {
       return tint::Switch(targetType,
         // type is scalar, load atomically
         [&](const type::NumericScalar *ns) {
+          atomic_loads++;
           return b.Call(ns, BuiltinFn::kAtomicLoad, source)->Result(0);
         },
         // call a helper function which takes in a pointer to the source type and returns the target type
@@ -155,6 +171,7 @@ struct State {
         tint::Switch(toStoreType,
           // store type is atomic, store the value atomically
           [&](const type::Atomic*) {
+            atomic_stores++;
             b.Call(ty.void_(), BuiltinFn::kAtomicStore, to, from);
           },
           // call a helper which takes in a pointer to the store type and the value to store and stores it
@@ -333,7 +350,15 @@ struct State {
     // storage buffers is enabled or because it is a root block workgroup memory variable.
     bool NeedsRewrite(Var* var) {
       auto* ptr = var->Result(0)->Type()->As<type::Pointer>();
-      return (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite && config.rewrite_storage) || (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup);
+      if (var->BindingPoint() && ptr->Access() == core::Access::kReadWrite && config.rewrite_storage) {
+        storage_rewrites++;
+        return true;
+      }
+      if (var->Block() == ir.root_block && ptr && ptr->AddressSpace() == AddressSpace::kWorkgroup) {
+        workgroup_rewrites++;
+        return true;
+      }
+      return false;
     }
 
     // Follow a private/function variable forwards, searching for stores (data dependencies) in this function
@@ -577,10 +602,10 @@ struct State {
 
     /// Process the module.
     Result<SuccessType> Process() {
-      auto before = Disassembler(ir);
-      std::cout << "// Shader Before:\n";
-      std::cout << before.Plain();
-      std::cout << "\n\n";
+     //auto before = Disassembler(ir);
+     //std::cout << "// Shader Before:\n";
+     //std::cout << before.Plain();
+     //std::cout << "\n\n";
 
       bool entryPointFound = false;
       for(auto *f: ir.DependencyOrderedFunctions()) {
@@ -589,16 +614,17 @@ struct State {
             TINT_ICE() << "multiple compute entry points found\n";
           }
           entryPointFound = true;
+          entry_point = ir.NameOf(f).Name();
           std::vector<Slice<Value* const>> fnArgsStack;
           fnArgsStack.push_back(Slice<Value* const>());
           VisitFunction(f, fnArgsStack);
         }
       }
 
-      auto after = Disassembler(ir);
-      std::cout << "// Shader After:\n";
-      std::cout << after.Plain();
-      std::cout << "\n\n";
+      //auto after = Disassembler(ir);
+      //std::cout << "// Shader After:\n";
+      //std::cout << after.Plain();
+      //std::cout << "\n\n";
       return Success;
     }
 };
@@ -610,8 +636,13 @@ Result<SuccessType> SMSG(Module& ir, const SMSGConfig& config) {
     if (result != Success) {
         return result;
     }
+    
+    auto state = State{config, ir};
+    auto processResult = state.Process();
 
-    return State{config, ir}.Process();
+    std::cout << state.entry_point << ": storage_rewrites: " << state.storage_rewrites << ", workgroup_rewrites: " << state.workgroup_rewrites << ", atomic_loads: " << state.atomic_loads << ", atomic_stores: " << state.atomic_stores << "\n";
+
+    return processResult;
 }
 
 } // namespace tint::core::ir::transform
