@@ -478,6 +478,21 @@ struct State {
           std::vector<Value*> unaryStack;
           VisitSliceValue(u->Val(), unaryStack, fnArgsStack);
         },
+        // Compound if statements (e.g. (a || b)) are broken down into a series of ifs where the condition to the next
+        // statement is the result of the previous one. To handle this, we need to visit both the condition
+        // of each statement and the evaluation of the conditions, which are the arguments in the "exit_if" statements.
+        [&](If* _if) {
+          std::vector<Value*> condStack;
+          VisitSliceValue(_if->Condition(), condStack, fnArgsStack);
+          _if->ForeachBlock([&](Block* block) {
+            Traverse(block, [&](ExitIf* exif) {
+              for(auto* arg : exif->Args()) {
+                std::vector<Value*> exifArgIndexStack;
+                VisitSliceValue(arg, exifArgIndexStack, fnArgsStack);
+              }
+            });
+          });
+        },
         [&](Var *v) {
           if (NeedsRewrite(v)) {
             RewriteRootVar(v, indexStack);
