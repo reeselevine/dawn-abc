@@ -69,6 +69,7 @@ using OptionalVertexPullingTransformConfig =
     X(bool, disableSymbolRenaming)                                                               \
     X(tint::msl::writer::Options, tintOptions)                                                   \
     X(bool, use_tint_ir)                                                                         \
+    X(size_t, contentHash)                                                                       \
     X(CacheKey::UnsafeUnkeyedValue<dawn::platform::Platform*>, platform)
 
 DAWN_MAKE_CACHE_REQUEST(MslCompilationRequest, MSL_COMPILATION_REQUEST_MEMBERS);
@@ -82,7 +83,6 @@ using WorkgroupAllocations = std::vector<uint32_t>;
     X(bool, needsStorageBufferLength)             \
     X(bool, hasInvariantAttribute)                \
     X(WorkgroupAllocations, workgroupAllocations) \
-    X(tint::msl::writer::SMSGOutput, smsgOutput)  \
     X(Extent3D, localWorkgroupSize)
 
 DAWN_SERIALIZABLE(struct, MslCompilation, MSL_COMPILATION_MEMBERS){};
@@ -209,6 +209,7 @@ tint::msl::writer::Bindings generateBindingInfo(
 
 ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
     DeviceBase* device,
+    size_t contentHash,
     const ProgrammableStage& programmableStage,
     SingleShaderStage stage,
     const PipelineLayout* layout,
@@ -285,6 +286,7 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
         req.tintOptions.strip_all_names = !req.disableSymbolRenaming;
         req.tintOptions.remapped_entry_point_name = kRemappedEntryPointName;
     }
+    req.contentHash = contentHash;
     req.tintOptions.disable_smsg = !device->IsSMSGEnabled();
     req.tintOptions.disable_robustness = !device->IsRobustnessEnabled();
     req.tintOptions.buffer_size_ubo_index = kBufferLengthBufferSlot;
@@ -365,6 +367,19 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
 
                 result = tint::msl::writer::Generate(ir.Get(), r.tintOptions);
 
+                if (result->smsg_output.processed) {
+                  std::cout << "{\n";
+                  std::cout << "  \"entryPoint\": \"" << result->smsg_output.entry_point << "\",\n";
+                  std::cout << "  \"contentHash\": " << r.contentHash << ",\n";
+                  std::cout << "  \"storageRewrites\": " << result->smsg_output.storage_rewrites << ",\n";
+                  std::cout << "  \"workgroupRewrites\": " << result->smsg_output.workgroup_rewrites << ",\n";
+                  std::cout << "  \"atomicLoads\": " << result->smsg_output.atomic_loads << ",\n";
+                  std::cout << "  \"atomicStores\": " << result->smsg_output.atomic_stores << ",\n";
+                  std::cout << "  \"f32Rewrites\": " << result->smsg_output.f32_rewrites << ",\n";
+                  std::cout << "  \"f32Replacements\": " << result->smsg_output.f32_replacements << "\n";
+                  std::cout << "}\n";
+                }
+
                 // Workgroup validation has to come after `Generate` because it may require
                 // overrides to have been substituted.
                 if (r.stage == SingleShaderStage::Compute) {
@@ -409,7 +424,6 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
                 result->needs_storage_buffer_sizes,
                 result->has_invariant_attribute,
                 std::move(workgroupAllocations),
-                result->smsg_output,
                 localSize,
             }};
         },
@@ -447,25 +461,8 @@ MaybeError ShaderModule::CreateFunction(SingleShaderStage stage,
 
     CacheResult<MslCompilation> mslCompilation;
     DAWN_TRY_ASSIGN(mslCompilation,
-                    TranslateToMSL(GetDevice(), programmableStage, stage, layout, out, sampleMask,
+                    TranslateToMSL(GetDevice(), ComputeContentHash(), programmableStage, stage, layout, out, sampleMask,
                                    renderPipeline, GetEntryPoint(entryPointName).bindings));
-
-    if (mslCompilation->smsgOutput.processed) {
-      auto contentHash = ComputeContentHash();
-      std::ostringstream smsgMsg;
-      smsgMsg << "{\n";
-      smsgMsg << "  \"entryPoint\": \"" << mslCompilation->smsgOutput.entry_point << "\",\n";
-      smsgMsg << "  \"contentHash\": " << contentHash << ",\n";
-      smsgMsg << "  \"storageRewrites\": " << mslCompilation->smsgOutput.storage_rewrites << ",\n";
-      smsgMsg << "  \"workgroupRewrites\": " << mslCompilation->smsgOutput.workgroup_rewrites << ",\n";
-      smsgMsg << "  \"atomicLoads\": " << mslCompilation->smsgOutput.atomic_loads << ",\n";
-      smsgMsg << "  \"atomicStores\": " << mslCompilation->smsgOutput.atomic_stores << ",\n";
-      smsgMsg << "  \"f32Rewrites\": " << mslCompilation->smsgOutput.f32_rewrites << ",\n";
-      smsgMsg << "  \"f32Replacements\": " << mslCompilation->smsgOutput.f32_replacements << "\n";
-      smsgMsg << "}\n";
-      std::cout << smsgMsg.str();
-      GetDevice()->EmitLog(WGPULoggingType_Info, smsgMsg.str().c_str());
-    }
 
     out->needsStorageBufferLength = mslCompilation->needsStorageBufferLength;
     out->workgroupAllocations = std::move(mslCompilation->workgroupAllocations);

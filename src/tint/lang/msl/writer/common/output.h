@@ -33,21 +33,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "src/tint/utils/reflection.h"
-
 namespace tint::msl::writer {
 
 struct SMSGOutput {
-  /// Constructor
-  SMSGOutput();
-  /// Destructor
-  ~SMSGOutput();
-  /// Copy constructor
-  SMSGOutput(const SMSGOutput&);
-  /// Copy assignment
-  /// @returns this Options
-  SMSGOutput& operator=(const SMSGOutput&);
-
   bool processed = false;
   std::string entry_point = "";
   uint storage_rewrites = 0;
@@ -56,16 +44,6 @@ struct SMSGOutput {
   uint atomic_stores = 0;
   uint f32_rewrites = 0;
   uint f32_replacements = 0;
-
-  TINT_REFLECT(SMSGOutput,
-               processed,
-               entry_point,
-               storage_rewrites,
-               workgroup_rewrites,
-               atomic_loads,
-               atomic_stores,
-               f32_rewrites,
-               f32_replacements);
 };
 
 
