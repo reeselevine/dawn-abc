@@ -513,6 +513,10 @@ struct State {
             });
           });
         },
+        [&](Swizzle *swiz) {
+          std::vector<Value*> swizStack;
+          VisitSliceValue(swiz->Object(), swizStack, fnArgsStack);
+        },
         [&](Var *v) {
           if (NeedsRewrite(v)) {
             RewriteRootVar(v, indexStack);
