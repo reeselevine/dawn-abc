@@ -640,7 +640,7 @@ struct State {
     }
 
     /// Process the module.
-    Result<SuccessType> Process() {
+    void Process() {
      //auto before = Disassembler(ir);
      //std::cout << "// Shader Before:\n";
      //std::cout << before.Plain();
@@ -664,24 +664,31 @@ struct State {
       //std::cout << "// Shader After:\n";
       //std::cout << after.Plain();
       //std::cout << "\n\n";
-      return Success;
+
     }
 };
 
 }  // namespace
 
-Result<SuccessType> SMSG(Module& ir, const SMSGConfig& config) {
+Result<SMSGResult> SMSG(Module& ir, const SMSGConfig& config) {
     auto result = ValidateAndDumpIfNeeded(ir, "core.SMSG");
     if (result != Success) {
-        return result;
+        return result.Failure();
     }
-    
     auto state = State{config, ir};
-    auto processResult = state.Process();
-
-    std::cout << state.entry_point << ": storage_rewrites: " << state.storage_rewrites << ", workgroup_rewrites: " << state.workgroup_rewrites << ", atomic_loads: " << state.atomic_loads << ", atomic_stores: " << state.atomic_stores << ", f32_rewrites: " << state.f32_rewrites << ", f32_replacements: " << state.f32_replacements << "\n";
-
-    return processResult;
+    state.Process();
+    SMSGResult smsgResult;
+    if (state.entry_point != "") {
+      smsgResult.processed = true;
+      smsgResult.entry_point = state.entry_point;
+      smsgResult.storage_rewrites = state.storage_rewrites;
+      smsgResult.workgroup_rewrites = state.workgroup_rewrites;
+      smsgResult.atomic_loads = state.atomic_loads;
+      smsgResult.atomic_stores = state.atomic_stores;
+      smsgResult.f32_rewrites = state.f32_rewrites;
+      smsgResult.f32_replacements = state.f32_replacements;
+    }
+    return smsgResult;
 }
 
 } // namespace tint::core::ir::transform

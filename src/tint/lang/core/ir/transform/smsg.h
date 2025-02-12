@@ -15,6 +15,27 @@ class Module;
 
 namespace tint::core::ir::transform {
 
+// The result of running the SMSG transform.
+struct SMSGResult {
+  // Whether or not this transform applies (i.e., a compute entrypoint was found in the shader)
+  bool processed = false;
+  // The entry point that was processed.
+  std::string entry_point = "";
+  // The number of storage buffer type rewrites.
+  uint storage_rewrites = 0;
+  // The number of workgroup buffer type rewrites.
+  uint workgroup_rewrites = 0;
+  // The number of added atomic loads.
+  uint atomic_loads = 0;
+  // The number of added atomic stores.
+  uint atomic_stores = 0;
+  // The number of f32 rewrites that we would have done if we could.
+  uint f32_rewrites = 0;
+  // The number of f32 atomic loads/stores we would have added if we could.
+  uint f32_replacements = 0;
+};
+
+
 struct SMSGConfig {
 
   // Should storage buffer bindings types be rewritten?
@@ -26,7 +47,7 @@ struct SMSGConfig {
 /// SMSG is a transform that prevents out-of-bounds memory accesses.
 /// @param module the module to transform
 /// @returns success or failure
-Result<SuccessType> SMSG(Module& module, const SMSGConfig& config);
+Result<SMSGResult> SMSG(Module& module, const SMSGConfig& config);
 
 }  // namespace tint::core::ir::transform
 

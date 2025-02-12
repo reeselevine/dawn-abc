@@ -59,6 +59,7 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options) {
     }
 
     result->needs_storage_buffer_sizes = raise_result->needs_storage_buffer_sizes;
+    result->smsg_output = raise_result->smsg_output;
     return result;
 }
 

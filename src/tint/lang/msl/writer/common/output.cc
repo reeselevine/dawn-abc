@@ -29,6 +29,14 @@
 
 namespace tint::msl::writer {
 
+SMSGOutput::SMSGOutput() = default;
+
+SMSGOutput::~SMSGOutput() = default;
+
+SMSGOutput::SMSGOutput(const SMSGOutput&) = default;
+
+SMSGOutput& SMSGOutput::operator=(const SMSGOutput&) = default;
+
 Output::Output() = default;
 
 Output::~Output() = default;

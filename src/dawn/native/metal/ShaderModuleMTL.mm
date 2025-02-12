@@ -82,6 +82,7 @@ using WorkgroupAllocations = std::vector<uint32_t>;
     X(bool, needsStorageBufferLength)             \
     X(bool, hasInvariantAttribute)                \
     X(WorkgroupAllocations, workgroupAllocations) \
+    X(tint::msl::writer::SMSGOutput, smsgOutput)  \
     X(Extent3D, localWorkgroupSize)
 
 DAWN_SERIALIZABLE(struct, MslCompilation, MSL_COMPILATION_MEMBERS){};
@@ -408,6 +409,7 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
                 result->needs_storage_buffer_sizes,
                 result->has_invariant_attribute,
                 std::move(workgroupAllocations),
+                result->smsg_output,
                 localSize,
             }};
         },
@@ -447,6 +449,23 @@ MaybeError ShaderModule::CreateFunction(SingleShaderStage stage,
     DAWN_TRY_ASSIGN(mslCompilation,
                     TranslateToMSL(GetDevice(), programmableStage, stage, layout, out, sampleMask,
                                    renderPipeline, GetEntryPoint(entryPointName).bindings));
+
+    if (mslCompilation->smsgOutput.processed) {
+      auto contentHash = ComputeContentHash();
+      std::ostringstream smsgMsg;
+      smsgMsg << "{\n";
+      smsgMsg << "  \"entryPoint\": \"" << mslCompilation->smsgOutput.entry_point << "\",\n";
+      smsgMsg << "  \"contentHash\": " << contentHash << ",\n";
+      smsgMsg << "  \"storageRewrites\": " << mslCompilation->smsgOutput.storage_rewrites << ",\n";
+      smsgMsg << "  \"workgroupRewrites\": " << mslCompilation->smsgOutput.workgroup_rewrites << ",\n";
+      smsgMsg << "  \"atomicLoads\": " << mslCompilation->smsgOutput.atomic_loads << ",\n";
+      smsgMsg << "  \"atomicStores\": " << mslCompilation->smsgOutput.atomic_stores << ",\n";
+      smsgMsg << "  \"f32Rewrites\": " << mslCompilation->smsgOutput.f32_rewrites << ",\n";
+      smsgMsg << "  \"f32Replacements\": " << mslCompilation->smsgOutput.f32_replacements << "\n";
+      smsgMsg << "}\n";
+      std::cout << smsgMsg.str();
+      GetDevice()->EmitLog(WGPULoggingType_Info, smsgMsg.str().c_str());
+    }
 
     out->needsStorageBufferLength = mslCompilation->needsStorageBufferLength;
     out->workgroupAllocations = std::move(mslCompilation->workgroupAllocations);

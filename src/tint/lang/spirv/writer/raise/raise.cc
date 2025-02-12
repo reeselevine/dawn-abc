@@ -65,7 +65,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     do {                                 \
         auto result = name(__VA_ARGS__); \
         if (result != Success) {         \
-            return result;               \
+            return result.Failure();     \
         }                                \
     } while (false)
 
