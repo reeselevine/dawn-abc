@@ -73,6 +73,12 @@ struct State {
     // The number of stores converted.
     uint atomic_stores = 0;
 
+    // The number of f32 types we would convert, if we could
+    uint f32_rewrites = 0;
+
+    // The number of f32 types we would replace, if we could
+    uint f32_replacements = 0;
+
     // Replace type used in instruction result 
     const type::Type* ReplaceType(const type::Type* type) {
       return tint::Switch(type,
@@ -101,6 +107,11 @@ struct State {
         [&](const type::U32* u32) {
           // wrap the u32 in an atomic type
           return ty.Get<type::Atomic>(u32);
+        },
+        [&](const type::F32* f32) {
+          // we'd wrap the type if we could :(
+          f32_replacements++;
+          return f32;
         },
         [&](const type::Atomic* at) {
           // If the type is already atomic just return it
@@ -293,6 +304,11 @@ struct State {
         [&](const type::U32* u32) {
           // wrap the u32 in an atomic type
           return ty.Get<type::Atomic>(u32);
+        },
+        [&](const type::F32* f32) {
+          // we'd wrap this if we could :(
+          f32_rewrites++;
+          return f32;
         },
         [&](const type::Array* ar) {
           // the index of the array access may be unknown, but it's not needed as all array members have the same type
@@ -659,7 +675,7 @@ Result<SuccessType> SMSG(Module& ir, const SMSGConfig& config) {
     auto state = State{config, ir};
     auto processResult = state.Process();
 
-    std::cout << state.entry_point << ": storage_rewrites: " << state.storage_rewrites << ", workgroup_rewrites: " << state.workgroup_rewrites << ", atomic_loads: " << state.atomic_loads << ", atomic_stores: " << state.atomic_stores << "\n";
+    std::cout << state.entry_point << ": storage_rewrites: " << state.storage_rewrites << ", workgroup_rewrites: " << state.workgroup_rewrites << ", atomic_loads: " << state.atomic_loads << ", atomic_stores: " << state.atomic_stores << ", f32_rewrites: " << state.f32_rewrites << ", f32_replacements: " << state.f32_replacements << "\n";
 
     return processResult;
 }
