@@ -38,12 +38,12 @@ namespace tint::msl::writer {
 struct SMSGOutput {
   bool processed = false;
   std::string entry_point = "";
-  uint storage_rewrites = 0;
-  uint workgroup_rewrites = 0;
-  uint atomic_loads = 0;
-  uint atomic_stores = 0;
-  uint f32_rewrites = 0;
-  uint f32_replacements = 0;
+  uint32_t storage_rewrites = 0;
+  uint32_t workgroup_rewrites = 0;
+  uint32_t atomic_loads = 0;
+  uint32_t atomic_stores = 0;
+  uint32_t f32_rewrites = 0;
+  uint32_t f32_replacements = 0;
 };
 
 
