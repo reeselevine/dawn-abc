@@ -63,7 +63,7 @@ enum class Toggle {
     DisableSampleVariables,
     UseD3D12SmallShaderVisibleHeapForTesting,
     UseDXC,
-    DisableSMSG,
+    EnableSMSG,
     DisableRobustness,
     MetalEnableVertexPulling,
     AllowUnsafeAPIs,

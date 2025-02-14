@@ -1877,7 +1877,7 @@ bool DeviceBase::IsValidationEnabled() const {
 }
 
 bool DeviceBase::IsSMSGEnabled() const {
-  return !IsToggleEnabled(Toggle::DisableSMSG);
+  return IsToggleEnabled(Toggle::EnableSMSG);
 }
 
 bool DeviceBase::IsRobustnessEnabled() const {
