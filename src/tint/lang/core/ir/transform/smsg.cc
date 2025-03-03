@@ -381,7 +381,7 @@ struct State {
       return false;
     }
 
-    // Follow a private/function variable forwards, searching for stores (data dependencies) in this function
+    // Follow a variable forwards, searching for stores (data dependencies) in this function
     // or in function calls recursively.
     void VisitForwardReference(Value* value, std::vector<Value*> indexStack, std::vector<tint::Slice<Value* const>> fnArgsStack) {
       value->ForEachUseUnsorted([&](Usage use) {
@@ -403,6 +403,7 @@ struct State {
           [&](UserCall* uc) {
             const VectorRef<FunctionParam*> fnParams = uc->Target()->Params();
             size_t i = 0;
+            VisitCD(uc, fnArgsStack);
             for (auto* a : uc->Args()) {
               if (a == value) {
                 std::vector<Slice<Value* const>> newArgsStack(fnArgsStack);
@@ -411,6 +412,19 @@ struct State {
               }
               i++;
             }
+          },
+          [&](CoreBuiltinCall *cbc) {
+            // if this is an atomic store then we need to visit its control/data dependencies
+            if (cbc->Func() == BuiltinFn::kAtomicStore) {
+              VisitCD(cbc, fnArgsStack);
+              for (auto* a : cbc->Args()) {
+                std::vector<Value*> newIndexStack;
+                VisitSliceValue(a, newIndexStack, fnArgsStack);
+              }
+            }
+          },
+          [&](Access* a) {
+            VisitForwardReference(a->Result(0), indexStack, fnArgsStack);
           }
           // other types of usages we don't need to track
         );
@@ -524,7 +538,8 @@ struct State {
             // if the var initializes a compound type, then the index stack still applies
             // otherwise, this must be a symple type, in which case the index stack will still be empty
             VisitSliceValue(v->Initializer(), indexStack, fnArgsStack);
-          } else if (!visited_vars.Contains(v)) {
+          }
+          if (!visited_vars.Contains(v)) {
             // This may be a declaration of a private/function scoped variable. If this variable is stored
             // to directly elsewhere in the program, then we need to visit the control/data depedencies of the store.
             // Note that if this is a compound variable and it is stored to partially, then it will be accessed
