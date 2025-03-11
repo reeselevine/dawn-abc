@@ -7,6 +7,7 @@
 #include "src/tint/utils/ice/ice.h"
 
 #include <iostream>
+#include <chrono>
 
 using namespace tint::core::number_suffixes;  // NOLINT
 
@@ -690,11 +691,15 @@ Result<SMSGResult> SMSG(Module& ir, const SMSGConfig& config) {
     if (result != Success) {
         return result.Failure();
     }
+    auto start = std::chrono::high_resolution_clock::now();
     auto state = State{config, ir};
     state.Process();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::milliseconds elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     SMSGResult smsgResult;
     if (state.entry_point != "") {
       smsgResult.processed = true;
+      smsgResult.time = elapsed.count();
       smsgResult.entry_point = state.entry_point;
       smsgResult.storage_rewrites = state.storage_rewrites;
       smsgResult.workgroup_rewrites = state.workgroup_rewrites;

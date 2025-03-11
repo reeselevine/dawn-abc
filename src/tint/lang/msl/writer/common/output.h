@@ -37,6 +37,7 @@ namespace tint::msl::writer {
 
 struct SMSGOutput {
   bool processed = false;
+  double time = 0.0;
   std::string entry_point = "";
   uint32_t storage_rewrites = 0;
   uint32_t workgroup_rewrites = 0;

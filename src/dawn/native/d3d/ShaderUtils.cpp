@@ -272,6 +272,19 @@ MaybeError TranslateToHLSL(d3d::HlslCompilationRequest r,
                         ir.Failure().reason.Str());
 
         result = tint::hlsl::writer::Generate(ir.Get(), r.tintOptions);
+        if (result->smsg_output.processed) {
+            std::cout << "{\n";
+            std::cout << "  \"entryPoint\": \"" << result->smsg_output.entry_point << "\",\n";
+            std::cout << "  \"time\": \"" << result->smsg_output.time << "\",\n";
+            std::cout << "  \"contentHash\": " << r.contentHash << ",\n";
+            std::cout << "  \"storageRewrites\": " << result->smsg_output.storage_rewrites << ",\n";
+            std::cout << "  \"workgroupRewrites\": " << result->smsg_output.workgroup_rewrites << ",\n";
+            std::cout << "  \"atomicLoads\": " << result->smsg_output.atomic_loads << ",\n";
+            std::cout << "  \"atomicStores\": " << result->smsg_output.atomic_stores << ",\n";
+            std::cout << "  \"f32Rewrites\": " << result->smsg_output.f32_rewrites << ",\n";
+            std::cout << "  \"f32Replacements\": " << result->smsg_output.f32_replacements << "\n";
+            std::cout << "}\n";
+        }
 
         // Workgroup validation has to come after `Generate` because it may require overrides to
         // have been substituted.

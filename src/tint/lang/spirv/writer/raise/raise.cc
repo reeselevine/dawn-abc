@@ -60,7 +60,7 @@
 
 namespace tint::spirv::writer {
 
-Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
+Result<RaiseResult> Raise(core::ir::Module& module, const Options& options) {
 #define RUN_TRANSFORM(name, ...)         \
     do {                                 \
         auto result = name(__VA_ARGS__); \
@@ -68,6 +68,8 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
             return result.Failure();     \
         }                                \
     } while (false)
+
+    RaiseResult raise_result;
 
     tint::transform::multiplanar::BindingsMap multiplanar_map{};
     RemapperData remapper_data{};
@@ -80,8 +82,23 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     }
     if (!options.disable_smsg) {
       core::ir::transform::SMSGConfig config{};
-      config.rewrite_storage = !options.disable_smsg_rewrite_storage;
-      RUN_TRANSFORM(core::ir::transform::SMSG, module, config);
+      // this disables storage rewrites if Vulkan robustness is enabled.
+      //config.rewrite_storage = !options.disable_smsg_rewrite_storage;
+      auto smsg_result = core::ir::transform::SMSG(module, config);
+      if (smsg_result != Success) {
+        return smsg_result.Failure();
+      }
+      SMSGOutput smsg_raise_result;
+      smsg_raise_result.processed = smsg_result->processed;
+      smsg_raise_result.time = smsg_result->time;
+      smsg_raise_result.entry_point = smsg_result->entry_point;
+      smsg_raise_result.storage_rewrites = smsg_result->storage_rewrites;
+      smsg_raise_result.workgroup_rewrites = smsg_result->workgroup_rewrites;
+      smsg_raise_result.atomic_loads = smsg_result->atomic_loads;
+      smsg_raise_result.atomic_stores = smsg_result->atomic_stores;
+      smsg_raise_result.f32_rewrites = smsg_result->f32_rewrites;
+      smsg_raise_result.f32_replacements = smsg_result->f32_replacements;
+      raise_result.smsg_output = smsg_raise_result;
     }
 
     core::ir::transform::BinaryPolyfillConfig binary_polyfills;
@@ -164,7 +181,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     RUN_TRANSFORM(core::ir::transform::Std140, module);
     RUN_TRANSFORM(raise::VarForDynamicIndex, module);
 
-    return Success;
+    return raise_result;
 }
 
 }  // namespace tint::spirv::writer

@@ -35,6 +35,19 @@
 
 namespace tint::spirv::writer {
 
+struct SMSGOutput {
+  bool processed = false;
+  double time = 0.0;
+  std::string entry_point = "";
+  uint32_t storage_rewrites = 0;
+  uint32_t workgroup_rewrites = 0;
+  uint32_t atomic_loads = 0;
+  uint32_t atomic_stores = 0;
+  uint32_t f32_rewrites = 0;
+  uint32_t f32_replacements = 0;
+};
+
+
 /// The output produced when generating SPIR-V.
 struct Output {
     /// Constructor
@@ -68,6 +81,8 @@ struct Output {
 
     /// The workgroup size information, if the entry point was a compute shader
     WorkgroupInfo workgroup_info{};
+
+    SMSGOutput smsg_output{};
 };
 
 }  // namespace tint::spirv::writer

@@ -29,6 +29,7 @@
 #define SRC_TINT_LANG_HLSL_WRITER_RAISE_RAISE_H_
 
 #include "src/tint/lang/hlsl/writer/common/options.h"
+#include "src/tint/lang/hlsl/writer/common/output.h"
 #include "src/tint/utils/result/result.h"
 
 // Forward declarations
@@ -38,11 +39,17 @@ class Module;
 
 namespace tint::hlsl::writer {
 
+/// The result of running Raise().
+struct RaiseResult {
+    /// The output of the SMSG transform.
+    SMSGOutput smsg_output{};
+};
+
 /// Raise a core IR module to the HLSL dialect of the IR.
 /// @param module the core IR module to raise to HLSL dialect
 /// @param options the printer options
 /// @returns success or failure
-Result<SuccessType> Raise(core::ir::Module& module, const Options& options);
+Result<RaiseResult> Raise(core::ir::Module& module, const Options& options);
 
 }  // namespace tint::hlsl::writer
 

@@ -88,6 +88,7 @@ Result<RaiseResult> Raise(core::ir::Module& module, const Options& options) {
       }
       SMSGOutput smsg_raise_result;
       smsg_raise_result.processed = smsg_result->processed;
+      smsg_raise_result.time = smsg_result->time;
       smsg_raise_result.entry_point = smsg_result->entry_point;
       smsg_raise_result.storage_rewrites = smsg_result->storage_rewrites;
       smsg_raise_result.workgroup_rewrites = smsg_result->workgroup_rewrites;

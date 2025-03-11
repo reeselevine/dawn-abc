@@ -64,7 +64,7 @@
 
 namespace tint::hlsl::writer {
 
-Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
+Result<RaiseResult> Raise(core::ir::Module& module, const Options& options) {
 #define RUN_TRANSFORM(name, ...)         \
     do {                                 \
         auto result = name(__VA_ARGS__); \
@@ -72,6 +72,8 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
             return result.Failure();     \
         }                                \
     } while (false)
+
+    RaiseResult raise_result;
 
     tint::transform::multiplanar::BindingsMap multiplanar_map{};
     RemapperData remapper_data{};
@@ -89,8 +91,23 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     if (!options.disable_smsg) {
       core::ir::transform::SMSGConfig config{};
       // D3D backends specify behavior of out-of-bounds accesses to buffers bound to root descriptor table. 
-      config.rewrite_storage = false;
-      RUN_TRANSFORM(core::ir::transform::SMSG, module, config);
+      // But, this might be a specification vulnerability in D3D
+      //config.rewrite_storage = false;
+      auto smsg_result = core::ir::transform::SMSG(module, config);
+      if (smsg_result != Success) {
+        return smsg_result.Failure();
+      }
+      SMSGOutput smsg_raise_result;
+      smsg_raise_result.processed = smsg_result->processed;
+      smsg_raise_result.time = smsg_result->time;
+      smsg_raise_result.entry_point = smsg_result->entry_point;
+      smsg_raise_result.storage_rewrites = smsg_result->storage_rewrites;
+      smsg_raise_result.workgroup_rewrites = smsg_result->workgroup_rewrites;
+      smsg_raise_result.atomic_loads = smsg_result->atomic_loads;
+      smsg_raise_result.atomic_stores = smsg_result->atomic_stores;
+      smsg_raise_result.f32_rewrites = smsg_result->f32_rewrites;
+      smsg_raise_result.f32_replacements = smsg_result->f32_replacements;
+      raise_result.smsg_output = smsg_raise_result;
     }
 
     {
@@ -225,8 +242,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
 
     // Anything which runs after this needs to handle `Capabilities::kAllowModuleScopedLets`
     RUN_TRANSFORM(raise::PromoteInitializers, module);
-
-    return Success;
+    return raise_result;
 }
 
 }  // namespace tint::hlsl::writer

@@ -141,6 +141,7 @@ ResultOrError<d3d::CompiledShader> ShaderModule::Compile(
                                ->GetAppliedShaderModelUnderToggles(device->GetTogglesState());
     req.hlsl.disableSymbolRenaming = device->IsToggleEnabled(Toggle::DisableSymbolRenaming);
     req.hlsl.dumpShaders = device->IsToggleEnabled(Toggle::DumpShaders);
+    req.hlsl.contentHash = ComputeContentHash();
     req.hlsl.useTintIR = useTintIR;
 
     req.bytecode.hasShaderF16Feature = device->HasFeature(Feature::ShaderF16);

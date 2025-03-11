@@ -201,6 +201,7 @@ ShaderModule::~ShaderModule() = default;
     X(CacheKey::UnsafeUnkeyedValue<const AdapterBase*>, adapter)                                 \
     X(std::string_view, entryPointName)                                                          \
     X(tint::spirv::writer::Options, tintOptions)                                                 \
+    X(size_t, contentHash)                                                                       \
     X(CacheKey::UnsafeUnkeyedValue<dawn::platform::Platform*>, platform)
 
 DAWN_MAKE_CACHE_REQUEST(SpirvCompilationRequest, SPIRV_COMPILATION_REQUEST_MEMBERS);
@@ -385,6 +386,8 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     req.limits = LimitsForCompilationRequest::Create(limits.v1);
     req.adapter = UnsafeUnkeyedValue(static_cast<const AdapterBase*>(GetDevice()->GetAdapter()));
 
+    req.contentHash = ComputeContentHash();
+
     CacheResult<CompiledSpirv> compilation;
     DAWN_TRY_LOAD_OR_RUN(
         compilation, GetDevice(), std::move(req), CompiledSpirv::FromBlob,
@@ -426,6 +429,19 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
             DAWN_INVALID_IF(tintResult != tint::Success,
                             "An error occurred while generating SPIR-V\n%s",
                             tintResult.Failure().reason.Str());
+            if (tintResult->smsg_output.processed) {
+                std::cout << "{\n";
+                std::cout << "  \"entryPoint\": \"" << tintResult->smsg_output.entry_point << "\",\n";
+                std::cout << "  \"time\": \"" << tintResult->smsg_output.time << "\",\n";
+                std::cout << "  \"contentHash\": " << r.contentHash << ",\n";
+                std::cout << "  \"storageRewrites\": " << tintResult->smsg_output.storage_rewrites << ",\n";
+                std::cout << "  \"workgroupRewrites\": " << tintResult->smsg_output.workgroup_rewrites << ",\n";
+                std::cout << "  \"atomicLoads\": " << tintResult->smsg_output.atomic_loads << ",\n";
+                std::cout << "  \"atomicStores\": " << tintResult->smsg_output.atomic_stores << ",\n";
+                std::cout << "  \"f32Rewrites\": " << tintResult->smsg_output.f32_rewrites << ",\n";
+                std::cout << "  \"f32Replacements\": " << tintResult->smsg_output.f32_replacements << "\n";
+                std::cout << "}\n";
+            }
 
             // Workgroup validation has to come after `Generate` because it may require overrides to
             // have been substituted.

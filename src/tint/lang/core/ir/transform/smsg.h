@@ -19,6 +19,8 @@ namespace tint::core::ir::transform {
 struct SMSGResult {
   // Whether or not this transform applies (i.e., a compute entrypoint was found in the shader)
   bool processed = false;
+  // The time it took to process the shader.
+  double time = 0.0;
   // The entry point that was processed.
   std::string entry_point = "";
   // The number of storage buffer type rewrites.

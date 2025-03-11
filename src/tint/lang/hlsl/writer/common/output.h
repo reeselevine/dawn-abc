@@ -37,6 +37,18 @@
 
 namespace tint::hlsl::writer {
 
+struct SMSGOutput {
+  bool processed = false;
+  double time = 0.0;
+  std::string entry_point = "";
+  uint32_t storage_rewrites = 0;
+  uint32_t workgroup_rewrites = 0;
+  uint32_t atomic_loads = 0;
+  uint32_t atomic_stores = 0;
+  uint32_t f32_rewrites = 0;
+  uint32_t f32_replacements = 0;
+};
+
 /// The output produced when generating HLSL.
 struct Output {
     /// Constructor
@@ -82,6 +94,8 @@ struct Output {
 
     /// True if the shader uses instance_index
     bool has_instance_index = false;
+
+    SMSGOutput smsg_output{};
 };
 
 }  // namespace tint::hlsl::writer

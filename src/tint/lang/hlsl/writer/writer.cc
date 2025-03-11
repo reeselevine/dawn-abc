@@ -42,12 +42,18 @@ namespace tint::hlsl::writer {
 
 Result<Output> Generate(core::ir::Module& ir, const Options& options) {
     // Raise the core-dialect to HLSL-dialect
-    auto res = Raise(ir, options);
-    if (res != Success) {
-        return res.Failure();
+    auto raise_result = Raise(ir, options);
+    if (raise_result != Success) {
+        return raise_result.Failure();
     }
 
-    return Print(ir, options);
+    auto result = Print(ir, options);
+    if (result != Success) {
+        return result.Failure();
+    }
+
+    result->smsg_output = raise_result->smsg_output;
+    return result;
 }
 
 Result<Output> Generate(const Program& program, const Options& options) {

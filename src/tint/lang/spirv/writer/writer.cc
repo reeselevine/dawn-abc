@@ -45,13 +45,19 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options) {
             return res.Failure();
         }
     }
-
     // Raise from core-dialect to SPIR-V-dialect.
-    if (auto res = Raise(ir, options); res != Success) {
-        return std::move(res.Failure());
+    auto raise_result = Raise(ir, options);
+    if (raise_result != Success) {
+        return raise_result.Failure();
     }
 
-    return Print(ir, options);
+    auto result = Print(ir, options);
+    if (result != Success) {
+        return result.Failure();
+    }
+
+    result->smsg_output = raise_result->smsg_output;
+    return result;
 }
 
 }  // namespace tint::spirv::writer
