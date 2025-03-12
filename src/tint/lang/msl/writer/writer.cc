@@ -27,6 +27,7 @@
 
 #include "src/tint/lang/msl/writer/writer.h"
 
+#include <chrono>
 #include <memory>
 #include <utility>
 
@@ -48,7 +49,10 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options) {
     Output output;
 
     // Raise from core-dialect to MSL-dialect.
+    auto start = std::chrono::high_resolution_clock::now();
     auto raise_result = Raise(ir, options);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::milliseconds elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     if (raise_result != Success) {
         return raise_result.Failure();
     }
@@ -60,6 +64,7 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options) {
 
     result->needs_storage_buffer_sizes = raise_result->needs_storage_buffer_sizes;
     result->smsg_output = raise_result->smsg_output;
+    result->raise_time = elapsed.count();
     return result;
 }
 

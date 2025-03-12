@@ -370,7 +370,8 @@ ResultOrError<CacheResult<MslCompilation>> TranslateToMSL(
                 if (result->smsg_output.processed) {
                   std::cout << "{\n";
                   std::cout << "  \"entryPoint\": \"" << result->smsg_output.entry_point << "\",\n";
-                  std::cout << "  \"time\": \"" << result->smsg_output.time << "\",\n";
+                  std::cout << "  \"raiseTime\": \"" << result->raise_time << "\",\n";
+                  std::cout << "  \"smsgTime\": \"" << result->smsg_output.time << "\",\n";
                   std::cout << "  \"contentHash\": " << r.contentHash << ",\n";
                   std::cout << "  \"storageRewrites\": " << result->smsg_output.storage_rewrites << ",\n";
                   std::cout << "  \"workgroupRewrites\": " << result->smsg_output.workgroup_rewrites << ",\n";

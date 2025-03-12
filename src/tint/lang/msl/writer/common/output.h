@@ -93,6 +93,8 @@ struct Output {
     /// The workgroup size information, if the entry point was a compute shader
     WorkgroupInfo workgroup_info{};
 
+    double raise_time = 0.0;
+
     SMSGOutput smsg_output{};
 };
 
