@@ -695,7 +695,7 @@ Result<SMSGResult> SMSG(Module& ir, const SMSGConfig& config) {
     auto state = State{config, ir};
     state.Process();
     auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::milliseconds elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::chrono::microseconds elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     SMSGResult smsgResult;
     if (state.entry_point != "") {
       smsgResult.processed = true;

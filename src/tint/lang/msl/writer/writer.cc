@@ -52,7 +52,7 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options) {
     auto start = std::chrono::high_resolution_clock::now();
     auto raise_result = Raise(ir, options);
     auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::milliseconds elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::chrono::microseconds elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     if (raise_result != Success) {
         return raise_result.Failure();
     }
