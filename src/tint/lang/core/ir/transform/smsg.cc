@@ -704,9 +704,9 @@ namespace tint::core::ir::transform {
       /// Process the module.
       void Process() {
         auto before = Disassembler(ir);
-        std::cout << "// Shader Before:\n";
-        std::cout << before.Plain();
-        std::cout << "\n\n";
+        //std::cout << "// Shader Before:\n";
+        //std::cout << before.Plain();
+        //std::cout << "\n\n";
 
         bool entryPointFound = false;
         for (auto* f : ir.DependencyOrderedFunctions()) {
@@ -723,9 +723,9 @@ namespace tint::core::ir::transform {
         }
 
         auto after = Disassembler(ir);
-        std::cout << "// Shader After:\n";
-        std::cout << after.Plain();
-        std::cout << "\n\n";
+        //std::cout << "// Shader After:\n";
+        //std::cout << after.Plain();
+        //std::cout << "\n\n";
 
       }
     };
@@ -753,6 +753,18 @@ namespace tint::core::ir::transform {
       smsgResult.atomic_stores = state.atomic_stores;
       smsgResult.f32_rewrites = state.f32_rewrites;
       smsgResult.f32_replacements = state.f32_replacements;
+
+      // print smsg result 
+      std::cout << "// SMSG Result:\n";
+      std::cout << "//   Processed: " << smsgResult.processed << "\n";
+      std::cout << "//   Time: " << smsgResult.time << " microseconds\n";
+      std::cout << "//   Entry Point: " << smsgResult.entry_point << "\n";
+      std::cout << "//   Storage Rewrites: " << smsgResult.storage_rewrites << "\n";
+      std::cout << "//   Workgroup Rewrites: " << smsgResult.workgroup_rewrites << "\n";
+      std::cout << "//   Atomic Loads: " << smsgResult.atomic_loads << "\n";
+      std::cout << "//   Atomic Stores: " << smsgResult.atomic_stores << "\n";
+      std::cout << "//   F32 Rewrites: " << smsgResult.f32_rewrites << "\n";
+      std::cout << "//   F32 Replacements: " << smsgResult.f32_replacements << "\n";
     }
     return smsgResult;
   }
