@@ -422,7 +422,7 @@ deps = {
       }
     ],
     'dep_type': 'cipd',
-    'condition': 'dawn_standalone',
+    'condition': 'dawn_standalone and (host_cpu != "arm64" or host_os == "mac") and non_git_source',
   },
 
   # Misc dependencies inherited from Tint

@@ -48,7 +48,7 @@ Ref<ShaderModuleMock> ShaderModuleMock::Create(
     DeviceMock* device,
     const UnpackedPtr<ShaderModuleDescriptor>& descriptor) {
     ShaderModuleParseResult parseResult;
-    ValidateAndParseShaderModule(device, descriptor, {}, &parseResult, nullptr).AcquireSuccess();
+    ValidateAndParseShaderModule(device, descriptor, {}, &parseResult, nullptr, 0).AcquireSuccess();
 
     Ref<ShaderModuleMock> shaderModule =
         AcquireRef(new NiceMock<ShaderModuleMock>(device, descriptor));
